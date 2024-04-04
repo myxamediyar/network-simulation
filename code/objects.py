@@ -33,7 +33,6 @@ class CustomError(Exception):
         super().__init__(message)
         self.message = message
 
-
 #class defs
 class Router: pass
 class Link: pass
@@ -50,7 +49,7 @@ class Router:
         self.__nextHopVector = {}
         self.__ackAwaitBuffer = set()
         self.__completed = set()
-        self.configure(name)
+        self.configure(name, ip = generateRandomID())
 
     def configure(self, name: str = None, ip: int = -1, network: Network = None, packets: List[Packet] = []):
         """Sets or updates the configuration for the router."""
@@ -184,7 +183,7 @@ class Link:
         self.weight = weight
         self.u = u
         self.v = v
-        self.id = generateRandomID
+        self.id = generateRandomID()
         self.__packets = set()
         self.__network = network
 
@@ -236,7 +235,7 @@ class Network:
             n.checkAck()
             n.forward()
 
-    def changeTopology(self, links: List[Link]):
+    def changeTopology_l(self, links: List[Link]):
         """Update all links and invalidate inactive nodes"""
         
         old_nodes = set()
@@ -256,6 +255,22 @@ class Network:
         self.refreshDns()
         self.__nodesExplore()
 
+    def changeTopology_rw(self, edges: List[(Router, Router)], weights: List[int]):
+        if len(edges) != len(weights):
+            raise CustomError("Number of edges != Number of weights")
+        links = []
+        for i in range(len(edges)):
+            u, v, w  = edges[i][0], edges[i][1], weights[i]
+            links.append(Link(u, v, w, self))
+        self.changeTopology_l(links)
+
+    def changeTopology_nnam(self, node_names, adjacency_matrix):
+        ###     0 3 1      a
+        ###     3 0 2      b
+        ###     1 0 0      c
+        ...
+
+
     def refreshDns(self):
         for e in self.__links:
             self.__dns[e.u.name] = e.u
@@ -270,25 +285,43 @@ class Network:
     def __setLinkMap(self, links: List[Link]):
         self.__links.clear()
         for e in links:
-            ip1, ip2 = e.u.getIP(), e.v.getIP()
-            self.__links[(ip1, ip2)] = e
-            self.__links[(ip2, ip1)] = e
-            self.__links[e.id] = e
+            self.addLink(e)
 
     def __setNodeMap(self, nodes: List[Router]):
         self.__nodes.clear()
         for n in nodes:
-            self.__nodes[n.getIP()] = n
-            self.__nodes[n.getName()] = n        
+            self.addNode(n)
+
+    def addNode(self, router: Router):
+        if router.getIP() in self.__nodes:
+            raise CustomError("Router with given IP or Name already exists!")
+        router.__setNetwork(self)
+        self.__nodes[router.getIP()] = router
+        self.__dns[router.getName()] = router.getIP()
     
-    def updateDNSEntry(self, oldname: str, newname: str) -> bool:
+    def addLink(self, link: Link):
+        if link.id in self.__links:
+            raise CustomError("Link already exists")
+        u = link.u
+        v = link.v
+        ip1, ip2 = u.getIP(), v.getIP()
+        if ip1 not in self.__nodes:
+            self.addNode(u)
+        if ip2 not in self.__nodes:
+            self.addNode(u)
+        self.__links[(ip1, ip2)] = link
+        self.__links[(ip2, ip1)] = link
+        self.__links[link.id] = link
+        
+            
+
+    def changeDNSEntry(self, oldname: str, newname: str) -> bool:
         if newname in self.__dns:
-            raise CustomError("Couldn't update DNS entry - New Name already exists")
+            raise CustomError("Couldn't change DNS entry - New Name already exists")
         n = self.__dns[oldname]
         self.__dns[newname] = n
         del self.__dns[oldname]
         return True
-
 
     def incrementTime(self):
         self.__time += 1
