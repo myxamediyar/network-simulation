@@ -31,6 +31,8 @@ def DijkstraNextHop(network, startRouter):
             prev = curNode
             curNode = prevNodes[curNode]
         nextHopVector[dst] = prev
-
-    return nextHopVector
+    d = {}
+    for to, hop in nextHopVector.items():
+        d[to.getName()] = hop.getName()
+    return d
 

@@ -60,19 +60,24 @@ class Router:
         self.__ip = ip
         self.__network = network
         self.__packets = packets
+
+    def poke(self):
+        #TODO: make this the method that does the processing forwawding ack etc
+        ...
     
     def forwardAll(self):
         for p in self.__packets:
+            self.__process(p)
             if p.getStatus() == DROP: #discard if dropped
                 continue
             src = p.src
             dst = p.dst
-            if p.getStaus() == RECV: 
+            if p.getStatus() == RECV: 
                 src, dst = dst, src
-            nextHopName = self.__nextHopVector[p.dst.name]
-            ipHop = self.__network.dns[nextHopName]
-            nextLink = self.__network.links[(self.getIp(), ipHop)]
-            self.__process(p)
+            # print(src, dst, self.__nextHopVector[p.dst])
+            nextHopName = self.__nextHopVector[p.dst]
+            nextHopIP = self.__network.getIP(nextHopName)
+            nextLink = self.__network.getLink((self.getIP(), nextHopIP))
             nextLink.addPacket(p)
         self.__packets = set()
 
@@ -133,7 +138,7 @@ class Router:
     def getIP(self):
         return self.__ip
 
-    def __setIP(self, ip: int):
+    def setIP(self, ip: int):
         self.configure(name=self.__name, ip=ip, network=self.__network, packets=self.__packets)
     #endregion
     #region router Network
@@ -218,9 +223,9 @@ class Link:
     def addPacket(self, packet: Packet):
         if self.__network == None:
             raise CustomError("Link is not attached to a network!")
-        if packet in self.packets:
+        if packet in self.__packets:
             raise CustomError("Packet already on Link!")
-        packet.setTimeStamp()
+        packet.incrTimeStamp()
         self.__packets.add(packet)
 
     def deliverPackets(self):
@@ -261,7 +266,11 @@ class Network:
             ###make routers forward packets (based on time)
             ###check if any packet is destined to you
             n.checkAck()
-            n.forward()
+            n.forwardAll()
+            
+    def updateTickN(self, n: int):
+        for _ in range(n):
+            self.updateTick()
     
     def printAll(self):
         print("Nodes:")
@@ -389,7 +398,16 @@ class Network:
         self.__time += 1
 
     def scheduleSend(self, name: str):
-        ... #maybe 
+        ... #maybe
+    
+    def send(self, packet: Packet):
+        srcNode = self.getNode(packet.src)
+        if srcNode == None:
+            raise CustomError("Src for packet wasn't found!")
+        packet.setNetwork(self)
+        packet.setStatus(FRESH)
+        srcNode.addPacket(packet)
+        
     
     def getTime(self) -> int:
         return self.__time
@@ -403,8 +421,14 @@ class Network:
             return None
         return self.__nodes[ip]
     
-    def getLink(self, id: int) -> Link:
-        return self.__links[id]
+    def getLink(self, id_or_ipTuple) -> Link:
+        return self.__links[id_or_ipTuple]
+    
+    def getIP(self, name: str) -> int:
+        node = self.getNode(name)
+        if node == None:
+            raise CustomError("Name to IP mapping doesn't exit")
+        return node.getIP()
 
         
 
@@ -436,7 +460,10 @@ class Packet:
         self.configure(FRESH, router.getNetwork())
 
     def setStatus(self, status: Status):
-        self.configure(self.__link, status, self.__network)
+        self.configure(status, self.__network)
+
+    def getStatus(self) -> Status:
+        return self.status
 
     def getStatusStr(self):
         return str(self.status)[7:]
@@ -460,9 +487,9 @@ class Packet:
     def incrRTcount(self):
         self.rtCount += 1
 
-    def __setNetwork(self, network: Network):
+    def setNetwork(self, network: Network):
         # perform checks and call necessary method in network object (delete + append shit)
-        self.configure(self.__link, self.status, network)
+        self.configure(self.status, network)
 
 
     def __repr__(self):
@@ -471,7 +498,7 @@ class Packet:
     ###ADD LOGS METHODS
     def log(self, who, msg):
         if self.__logBit:
-            self.__log.append(f"TIMESTAMP {self.__network.__time}: {self} is at {who}.\n{' ' * (len(' TIMESTAMP ') + len(str(self.__network.__time)))}Message: {msg}.")
+            self.__log.append(f"TIMESTAMP {self.__network.getTime()}: {self} is at {who}.\n{' ' * (len(' TIMESTAMP ') + len(str(self.__network.getTime())))}Message: {msg}.")
     def printLog(self):
         for m in self.__log:
             print(m)

@@ -13,4 +13,9 @@ net.changeTopology_nnal(nodes, d)
 net.printAll()
 net.getNode("a").printNextHops()
 
+testPacket = Packet("a", "b", True)
+net.send(testPacket)
+net.updateTickN(10)
+testPacket.printLog()
+
 
