@@ -5,6 +5,7 @@ from collections import defaultdict
 from enum import Enum
 import random
 from copy import deepcopy
+from RoutingAlgos import *
 
 #Packet status
 class Status(Enum):
@@ -48,6 +49,7 @@ class Router:
         self.__nextHopVector = {}
         self.__ackAwaitBuffer = set()
         self.__completed = set()
+        self.__links = []
         self.configure(name, ip = generateRandomID())
         ##TODO: CHANGE
         self.setRoutingAlgorithm(lambda x: x)
@@ -112,12 +114,12 @@ class Router:
         ##fetch topology
         ##run routing algorithm
         ##for every node, determine next hop
-        self.__nextHopVector = self.__routing(self.__network)
+        self.__nextHopVector = self.__routing(self.__network, self)
     
     def setRoutingAlgorithm(self, algorihtm):
         self.__routing = algorihtm
 
-###---------FOR ALL SETTERS PERFORM DEEP COPY---------####
+###---------FOR ALL GETTERs PERFORM DEEP COPY---------####
 
     #region router Name
     def getName(self):
@@ -143,10 +145,13 @@ class Router:
     #endregion
     #region router Links
     def getLinks(self):
-        return self.__links
+        links = []
+        for id in self.__links:
+            links.append(self.getNetwork().getLink(id))
+        return links
 
-    def setLinks(self, links: list[Link]):
-        self.configure(name=self.__name, ip=self.__ip, network=self.__network, packets=self.__packets)
+    def addLink(self, linkId: int):
+        self.__links.append(linkId)
     #endregion   
     #region router Packets
     def getPackets(self):
@@ -160,6 +165,10 @@ class Router:
 
     def addPacket(self, packet):
         self.addPackets([packet])
+
+    def printNextHops(self):
+        for k, v in self.__nextHopVector.items():
+            print("To", k, "through", v)
 
     #endregion
      
@@ -223,8 +232,8 @@ class Network:
         ###increment time
         self.__time += 1
         ###peform all deliveries to routers
-        links = self.__links.values()
-        nodes = self.__nodes.values()
+        links = list(self.__links.values())
+        nodes = list(self.__nodes.values())
         for l in links:
             l.deliverPackets()
         for n in nodes:
@@ -298,8 +307,8 @@ class Network:
 
     def refreshDns(self):
         for e in self.__links.values():
-            self.__dns[e.u.getName()] = e.u
-            self.__dns[e.v.getName()] = e.v
+            self.__dns[e.u.getName()] = e.u.getIP()
+            self.__dns[e.v.getName()] = e.v.getIP()
     
     def __nodesExplore(self):
         nodes = set(self.__nodes.values())
@@ -324,6 +333,7 @@ class Network:
             print("WARNING: name already exists!")
             return
         router.setNetwork(self)
+        router.setRoutingAlgorithm(DijkstraNextHop)
         self.__nodes[router.getIP()] = router
         self.__dns[router.getName()] = router.getIP()
     
@@ -361,6 +371,19 @@ class Network:
     
     def getTime(self) -> int:
         return self.__time
+    
+    def getNodes(self) -> list[Router]:
+        return deepcopy(list(self.__nodes.values()))
+    
+    def getNode(self, name: str) -> Router:
+        ip = self.__dns[name]
+        if ip == None:
+            return None
+        return deepcopy(self.__nodes[ip])
+    
+    def getLink(self, id: int) -> Link:
+        return self.__links[id]
+
         
 
 # Packet object
