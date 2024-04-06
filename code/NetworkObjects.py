@@ -150,8 +150,8 @@ class Router:
             links.append(self.getNetwork().getLink(id))
         return links
 
-    def addLink(self, linkId: int):
-        self.__links.append(linkId)
+    def addLink(self, linkID: int):
+        self.__links.append(linkID)
     #endregion   
     #region router Packets
     def getPackets(self):
@@ -183,6 +183,26 @@ class Router:
 
     def __repr__(self):
         return f"Router({self.__name})"
+    
+    def __lt__(self, other):
+        if not isinstance(other, Router):
+            return NotImplemented
+        return self.getName() < other.getName()
+
+    def __gt__(self, other):
+        if not isinstance(other, Router):
+            return NotImplemented
+        return self.getName() > other.getName()
+    
+    def __le__(self, other):
+        if not isinstance(other, Router):
+            return NotImplemented
+        return self.getName() <= other.getName()
+
+    def __ge__(self, other):
+        if not isinstance(other, Router):
+            return NotImplemented
+        return self.getName() >= other.getName()
 
 
 # Link object
@@ -352,6 +372,8 @@ class Network:
         self.__links[(ip1, ip2)] = link
         self.__links[(ip2, ip1)] = link
         self.__links[link.id] = link
+        u.addLink(link.id)
+        v.addLink(link.id)
         
             
 
@@ -373,13 +395,13 @@ class Network:
         return self.__time
     
     def getNodes(self) -> list[Router]:
-        return deepcopy(list(self.__nodes.values()))
+        return list(self.__nodes.values())
     
     def getNode(self, name: str) -> Router:
         ip = self.__dns[name]
         if ip == None:
             return None
-        return deepcopy(self.__nodes[ip])
+        return self.__nodes[ip]
     
     def getLink(self, id: int) -> Link:
         return self.__links[id]

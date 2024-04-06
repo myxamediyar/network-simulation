@@ -14,31 +14,23 @@ def Dijkstra(network, startRouter):
             neighbor = link.v if curRouter == link.u else link.u
             weight = link.weight
             distThruCur = curDist + weight
-
             if distThruCur < dist[neighbor]:
                 dist[neighbor] = distThruCur
                 prevNodes[neighbor] = curRouter
                 heapq.heappush(pQ, (distThruCur, neighbor))
-
     return dist, prevNodes
 
 
-##TODO: fix, this is WRONG
 def DijkstraNextHop(network, startRouter):
     _, prevNodes = Dijkstra(network, startRouter)
     nextHopVector = {}
-
-    for destination, prevNode in prevNodes.items():
-        currentNode = destination
-
-        if currentNode == startRouter:
-            nextHopVector[currentNode] = None
-            continue
-
-        while prevNode is not None and prevNodes[prevNode] != startRouter:
-            currentNode = prevNode
-            prevNode = prevNodes[prevNode]
-        
-        nextHopVector[destination] = currentNode
+    for dst in prevNodes:
+        curNode = dst
+        prev = dst
+        while curNode != startRouter: 
+            prev = curNode
+            curNode = prevNodes[curNode]
+        nextHopVector[dst] = prev
 
     return nextHopVector
+

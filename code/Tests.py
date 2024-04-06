@@ -1,4 +1,5 @@
 from NetworkObjects import *
+from RoutingAlgos import *
 
 nodes = ['a', 'b', 'c', 'd']
 
