@@ -10,12 +10,13 @@ d[nodes[2]] = [(nodes[3], 1)]
 
 net = Network(100)
 net.changeTopology_nnal(nodes, d)
-net.printAll()
-net.getNode("a").printNextHops()
+# net.printAll()
+# net.getNode("a").printNextHops()
 
-testPacket = Packet("a", "b", True)
+testPacket = Packet("a", "d", True)
 net.send(testPacket)
-net.updateTickN(10)
+net.updateTickN(100)
 testPacket.printLog()
+
 
 

@@ -54,26 +54,20 @@ class Router:
         ##TODO: CHANGE
         self.setRoutingAlgorithm(lambda x: x)
 
-    def configure(self, name: str = None, ip: int = -1, network: Network = None, packets: list[Packet] = []):
+    def configure(self, name: str = None, ip: int = -1, network: Network = None, packets: list[Packet] = set()):
         """Sets or updates the configuration for the router."""
         self.__name = name
         self.__ip = ip
         self.__network = network
         self.__packets = packets
-
-    def poke(self):
-        #TODO: make this the method that does the processing forwawding ack etc
-        ...
     
     def forwardAll(self):
         for p in self.__packets:
             self.__process(p)
             if p.getStatus() == DROP: #discard if dropped
                 continue
-            src = p.src
-            dst = p.dst
-            if p.getStatus() == RECV: 
-                src, dst = dst, src
+            if p.getStatus() == ACK: #round trip complete
+                continue
             # print(src, dst, self.__nextHopVector[p.dst])
             nextHopName = self.__nextHopVector[p.dst]
             nextHopIP = self.__network.getIP(nextHopName)
@@ -85,18 +79,20 @@ class Router:
         ## mark and log
         msg = f"At {self}."
         packet.incrTimeStamp()
+        packet.intermed = self
         if packet.status == FRESH:
             packet.setStatus(SENT)
             self.__ackAwaitBuffer.add(packet)
             msg = f"Packet sent."
-        elif packet.status == RECV and packet in self.__ackAwaitBuffer:
+        elif packet.status == RECV and (packet in self.__ackAwaitBuffer):
             self.__completed.add(packet)
             self.__ackAwaitBuffer.remove(packet)
             packet.setStatus(ACK)
             msg = f"Round trip completed."
-        elif packet.dst == self:
+        elif packet.dst == self.getName():
             packet.setStatus(RECV)
             msg = "Packet received."
+            packet.dst, packet.src = packet.src, packet.dst
         packet.log(self, msg)
 
     def checkAck(self):
@@ -165,8 +161,8 @@ class Router:
     def setPackets(self, packets: list[Packet]):
         self.configure(name=self.__name, ip=self.__ip, network=self.__network, packets=packets)
 
-    def addPackets(self, packet: list[Packet]):
-        self.__packets.extend(packet)
+    def addPackets(self, packets: list[Packet]):
+        self.__packets = self.__packets.union(set(packets))
 
     def addPacket(self, packet):
         self.addPackets([packet])
@@ -265,8 +261,8 @@ class Network:
             ###peform ack TTL checks
             ###make routers forward packets (based on time)
             ###check if any packet is destined to you
-            n.checkAck()
             n.forwardAll()
+            n.checkAck()
             
     def updateTickN(self, n: int):
         for _ in range(n):
@@ -406,6 +402,7 @@ class Network:
             raise CustomError("Src for packet wasn't found!")
         packet.setNetwork(self)
         packet.setStatus(FRESH)
+        packet.incrTimeSent()
         srcNode.addPacket(packet)
         
     
@@ -497,8 +494,10 @@ class Packet:
     
     ###ADD LOGS METHODS
     def log(self, who, msg):
+        logInfo = f"TIMESTAMP {self.__network.getTime()}: {self} is at {who}.\n{' ' * (len(' TIMESTAMP ') + len(str(self.__network.getTime())))}Message: {msg}"
         if self.__logBit:
-            self.__log.append(f"TIMESTAMP {self.__network.getTime()}: {self} is at {who}.\n{' ' * (len(' TIMESTAMP ') + len(str(self.__network.getTime())))}Message: {msg}.")
+            self.__log.append(logInfo)
+        print(logInfo)
     def printLog(self):
         for m in self.__log:
             print(m)
