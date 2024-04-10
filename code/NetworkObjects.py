@@ -22,8 +22,8 @@ def generateRandomID():
 
 FRESH = Status.FRESH
 SENT = Status.SENT
-RECV = Status.RECV
 ACK = Status.ACK
+RECV = Status.RECV
 RET = Status.RET
 DROP = Status.DROP
 
@@ -66,7 +66,7 @@ class Router:
             self.__process(p)
             if p.getStatus() == DROP: #discard if dropped
                 continue
-            if p.getStatus() == ACK: #round trip complete
+            if p.getStatus() == RECV: #round trip complete
                 continue
             # print(src, dst, self.__nextHopVector[p.dst])
             nextHopName = self.__nextHopVector[p.dst]
@@ -84,13 +84,13 @@ class Router:
             packet.setStatus(SENT)
             self.__ackAwaitBuffer.add(packet)
             msg = f"Packet sent."
-        elif packet.status == RECV and (packet in self.__ackAwaitBuffer):
+        elif packet.status == ACK and (packet in self.__ackAwaitBuffer):
             self.__completed.add(packet)
             self.__ackAwaitBuffer.remove(packet)
-            packet.setStatus(ACK)
+            packet.setStatus(RECV)
             msg = f"Round trip completed."
         elif packet.dst == self.getName():
-            packet.setStatus(RECV)
+            packet.setStatus(ACK)
             msg = "Packet received."
             packet.dst, packet.src = packet.src, packet.dst
         packet.log(self, msg)
@@ -101,6 +101,7 @@ class Router:
         for p in self.__ackAwaitBuffer:
             if t - p.getTimeSent() > rto:
                 p.setStatus(DROP)
+                p.log(self, f"Packet dropped at {self}.")
                 p = deepcopy(p)
                 p.incrRTcount()
                 p.refresh(self)
@@ -227,13 +228,14 @@ class Link:
     def deliverPackets(self):
         discarded = set()
         for p in self.__packets:
+            p.log(self, f"At link {self}")
             if self.__network.getTime() - p.getTimeStamp() > self.weight:
+                # print("PACKET", self.__network.getTime(), p.getTimeStamp(), self.weight)
                 discarded.add(p)
                 if p.intermed == self.u:
                     self.v.addPacket(p)
                 else:
                     self.u.addPacket(p)
-                p.log(self, f"At link {self}")
         self.__packets -= discarded
 
 
@@ -251,18 +253,18 @@ class Network:
     
     def updateTick(self):
         ###increment time
-        self.__time += 1
+        self.incrementTime()
         ###peform all deliveries to routers
-        links = list(self.__links.values())
-        nodes = list(self.__nodes.values())
+        links = set(self.__links.values())
+        nodes = set(self.__nodes.values())
         for l in links:
             l.deliverPackets()
         for n in nodes:
             ###peform ack TTL checks
             ###make routers forward packets (based on time)
             ###check if any packet is destined to you
-            n.forwardAll()
             n.checkAck()
+            n.forwardAll()
             
     def updateTickN(self, n: int):
         for _ in range(n):
@@ -497,7 +499,7 @@ class Packet:
         logInfo = f"TIMESTAMP {self.__network.getTime()}: {self} is at {who}.\n{' ' * (len(' TIMESTAMP ') + len(str(self.__network.getTime())))}Message: {msg}"
         if self.__logBit:
             self.__log.append(logInfo)
-        print(logInfo)
+            
     def printLog(self):
         for m in self.__log:
             print(m)
