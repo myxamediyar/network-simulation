@@ -5,8 +5,6 @@ from collections import defaultdict
 from enum import Enum
 import random
 from copy import deepcopy
-
-from traitlets import Bool
 from RoutingAlgos import *
 
 #Packet status
@@ -15,7 +13,7 @@ class Status(Enum):
     SENT = 1
     RECV = 2
     ACK = 3
-    RET = 4
+    INVALID_MAPPING = 4
     DROP = 5
 
 LARGE_PRIME = 112272535095293
@@ -26,7 +24,7 @@ FRESH = Status.FRESH
 SENT = Status.SENT
 ACK = Status.ACK
 RECV = Status.RECV
-RET = Status.RET
+INVALID_MAPPING = Status.INVALID_MAPPING
 DROP = Status.DROP
 
 #Custom error
@@ -50,10 +48,10 @@ class Router:
         self.__destroyed = False
         self.__nextHopVector = defaultdict(lambda: None)
         self.__ackAwaitBuffer = set()
+        self.__dropHop = defaultdict(lambda: None)
         self.__completed = set()
-        self.__links = []
+        self.__links = set()
         self.configure(name, ip = generateRandomID())
-        ##TODO: CHANGE
         self.setRoutingAlgorithm(lambda x: x)
 
     def configure(self, name: str = None, ip: int = -1, network: Network = None, packets: list[Packet] = set()):
@@ -70,7 +68,6 @@ class Router:
                 continue
             if p.getStatus() == RECV: #round trip complete
                 continue
-            # print(src, dst, self.__nextHopVector[p.dst])
             nextHopName = self.__nextHopVector[p.dst]
             if nextHopName == None:
                 self.drop(p)
@@ -91,15 +88,22 @@ class Router:
             packet.log(self, f"Packet added to {self}")
             packet.setStatus(SENT)
             msg = f"Packet sent."
-        elif packet.getStatus() == ACK and (packet in self.__ackAwaitBuffer):
-            self.__completed.add(packet)
-            self.__ackAwaitBuffer.remove(packet)
-            packet.setStatus(RECV)
-            msg = f"Round trip completed."
+        elif packet.getStatus() == ACK:
+            if packet not in self.__ackAwaitBuffer:
+                print("WARNING: A non waited upon ACK'd packet received and discarded!")
+                msg = f"Dropped random ACK'd packet."
+                packet.setStatus(DROP)
+            else:
+                self.__completed.add(packet)
+                self.__ackAwaitBuffer.remove(packet)
+                packet.setStatus(RECV)
+                msg = f"Round trip completed."
         elif packet.dst == self.getName():
             packet.setStatus(ACK)
             msg = "Packet received."
             packet.dst, packet.src = packet.src, packet.dst
+        else:
+            self.__ackAwaitBuffer.add(packet)
         packet.log(self, msg)
 
     def checkAck(self):
@@ -109,16 +113,32 @@ class Router:
         for p in self.__ackAwaitBuffer:
             if t - p.getTimeSent() > rto:
                 droppedPackets.add(p)
-                self.addPacket(self.drop(p))
+                _, v = p.src, p.dst
+                if p.getStatus() == ACK:
+                    _, v = v, _
+                self.recordDropHop(p, self.__nextHopVector[v])
+                self.drop(p)
+                self.retransmit(p, p.retransmit)
         self.__ackAwaitBuffer -= droppedPackets
 
     def drop(self, p: Packet):
         p.setStatus(DROP)
         p.log(self, f"Packet dropped by {self}.")
+        p.incrTimeStamp()
+
+    def retransmit(self, p, addNow: bool = True):
         p1 = deepcopy(p)
         p.retransmitNext = p1
         p1.refresh(self)
+        if addNow:
+            self.addPacket(p1)
         return p1
+    
+    def recordDropHop(self, packet: Packet, nextHop: str):
+        self.__dropHop[packet] = nextHop
+
+    def reportDropHop(self, packet):
+        return self.__dropHop[packet]
 
     def __process(self, packet: Packet):
         ##malicious will be able to modify this
@@ -160,13 +180,13 @@ class Router:
     #endregion
     #region router Links
     def getLinks(self):
-        links = []
-        for id in self.__links:
-            links.append(self.getNetwork().getLink(id))
-        return links
+        return [self.getNetwork().getLink(id) for id in self.__links]
 
     def addLink(self, linkID: int):
-        self.__links.append(linkID)
+        self.__links.add(linkID)
+
+    def removeLink(self, linkID: int):
+        self.__links.remove(linkID)
     #endregion   
     #region router Packets
     def getPackets(self):
@@ -239,6 +259,9 @@ class Link:
     
     def getEndpoints(self) -> tuple[Router, Router]:
         return (self.__network.getNodeIP(self.u), self.__network.getNodeIP(self.v))
+    
+    def hasEndpoint(self, ip: int) -> bool:
+        return ip == self.u or ip == self.v
 
 
     def deliverPackets(self):
@@ -259,6 +282,11 @@ class Link:
                     u.addPacket(p)
         self.__packets -= discarded
 
+    def setNetwork(self, network: Network):
+        self.__network = network
+
+    def getNetwork(self):
+        return self.__network
 
     def __repr__(self):
         u, v = self.getEndpoints()
@@ -291,6 +319,11 @@ class Network:
     def updateTickN(self, n: int):
         for _ in range(n):
             self.updateTick()
+
+    def updateTickTill(self, packet: Packet, status: Status, stopTime: int = 100):
+        while packet.getStatus() != status and stopTime:
+            self.updateTick()
+            stopTime -= 1
     
     def printAll(self):
         print("Nodes:")
@@ -383,7 +416,7 @@ class Network:
         for n in nodes:
             self.addNode(n)
 
-    def addNode(self, router: Router, skipChecks: Bool = False):
+    def addNode(self, router: Router, skipChecks: bool = False):
         if not skipChecks:
             if router.getIP() in self.__nodes:
                 raise CustomError("Router with given IP or Name already exists!")
@@ -394,26 +427,48 @@ class Network:
         router.setRoutingAlgorithm(DijkstraNextHop)
         self.__nodes[router.getIP()] = router
         self.__dns[router.getName()] = router.getIP()
+
+    def removeNode(self, router: Router):
+        ip = router.getIP()
+        name = router.getName()
+
+        linksRemove = []
+        for link in router.getLinks():
+            u, v = link.getEndpoints()
+            u.removeLink(link.id)
+            v.removeLink(link.id)
+            linksRemove.extend([link.id, (link.u, link.v), (link.v, link.u)])
+
+
+        for key in linksRemove:
+            del self.__links[key]
+
+        if ip in self.__nodes:
+            del self.__nodes[ip]
+        else:
+            raise CustomError("Router with the given IP does not exist!")
+
+        if name in self.__dns:
+            del self.__dns[name]
+        else:
+            print("WARNING: Router name not found in DNS.")
+
     
     def addLink(self, link: Link):
         if link.id in self.__links:
             raise CustomError("Link already exists")
+        link.setNetwork(self)
         u, v = link.getEndpoints()
         ip1, ip2 = link.u, link.v
         if (ip1, ip2) in self.__links:
             return
-        if ip1 not in self.__nodes:
-            self.addNode(u)
-        if ip2 not in self.__nodes:
-            self.addNode(u)
         self.__links[(ip1, ip2)] = link
         self.__links[(ip2, ip1)] = link
         self.__links[link.id] = link
         u.addLink(link.id)
         v.addLink(link.id)
         
-            
-
+        
     def changeDNSEntry(self, oldname: str, newname: str) -> bool:
         if newname in self.__dns:
             raise CustomError("Couldn't change DNS entry - New Name already exists")
@@ -487,7 +542,7 @@ class Network:
 # Packet object
 class Packet:
 
-    def __init__(self, src: str, dst: str, logBit: bool = False, status: Status = None, network: Network = None):
+    def __init__(self, src: str, dst: str, logBit: bool = False, status: Status = None, network: Network = None, retransmit = True):
         self.src = src
         self.dst = dst
         self.intermedIP = -1
@@ -495,6 +550,7 @@ class Packet:
         self.__log = []
         self.__summary = [None, [], None]
         self.retransmitNext = None
+        self.retransmit = retransmit
         self.__timeSent = -1000000
         self.__timeStamp = -1000000
         self.rtCount = 0
@@ -511,6 +567,9 @@ class Packet:
             raise CustomError("Packet is not on a network!")
 
     def refresh(self, router):
+        self.__timeSent = -1000000
+        self.__timeStamp = -1000000
+
         self.configure(FRESH, router.getNetwork())
 
     def setStatus(self, status: Status):
@@ -575,10 +634,11 @@ class Packet:
 
     def printSummary(self):
         print(f"{self} summary:")
-        print(self.__summary[0])
+        print("-", self.__summary[0])
         travelPath = ','.join(self.__summary[1])
-        print("Visisted nodes: " + travelPath)
-        print(self.__summary[2])
+        print("-", "Visisted nodes: " + travelPath)
+        print("-", self.__summary[2])
+        print("-", "Time sent:", self.getTimeSent(), "\n- Last logged time:", self.getTimeStamp())
 
 
 
@@ -591,4 +651,13 @@ class Attacker(Router):
     
     def setRoutingAlgorithm(self, algorihtm):
         return
+
+    def reportDropHop(self, _):
+        links = self.getLinks()
+        if not len(links):
+            raise CustomError("Isolated node detected!")
+        random.shuffle(links)
+        return links[0]
+
+                
 
