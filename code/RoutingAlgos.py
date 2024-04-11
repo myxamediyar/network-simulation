@@ -12,7 +12,8 @@ def Dijkstra(network, startRouter):
         curDist, curRouter = heapq.heappop(pQ)
         
         for link in curRouter.getLinks():
-            neighbor = link.v if curRouter == link.u else link.u
+            u, v = link.getEndpoints()
+            neighbor = v if curRouter == u else u
             weight = link.weight
             distThruCur = curDist + weight
             if distThruCur < dist[neighbor]:

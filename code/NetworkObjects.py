@@ -5,6 +5,8 @@ from collections import defaultdict
 from enum import Enum
 import random
 from copy import deepcopy
+
+from traitlets import Bool
 from RoutingAlgos import *
 
 #Packet status
@@ -46,7 +48,7 @@ class Defender(Router): pass
 class Router:
     def __init__(self, name: str = None):
         self.__destroyed = False
-        self.__nextHopVector = {}
+        self.__nextHopVector = defaultdict(lambda: None)
         self.__ackAwaitBuffer = set()
         self.__completed = set()
         self.__links = []
@@ -62,7 +64,6 @@ class Router:
         self.__packets = packets
     
     def forwardAll(self):
-        retransmitPackets = set()
         for p in self.__packets:
             self.__process(p)
             if p.getStatus() == DROP: #discard if dropped
@@ -70,25 +71,26 @@ class Router:
             if p.getStatus() == RECV: #round trip complete
                 continue
             # print(src, dst, self.__nextHopVector[p.dst])
+            print(self.__nextHopVector)
             nextHopName = self.__nextHopVector[p.dst]
             if nextHopName == None:
-                retransmitPackets.add(self.drop(p))
+                self.drop(p)
                 continue
             nextHopIP = self.__network.getIP(nextHopName)
             nextLink = self.__network.getLink((self.getIP(), nextHopIP))
             nextLink.addPacket(p)
-        self.__packets = retransmitPackets
+        self.__packets = set()
 
     def __process_basic(self, packet):
         ## mark and log
         msg = f"At {self}."
-        packet.log(self, msg)
         packet.incrTimeStamp()
-        packet.intermed = self
+        packet.intermedIP = self.getIP()
         if packet.status == FRESH:
             packet.setStatus(SENT)
             packet.incrTimeSent()
             self.__ackAwaitBuffer.add(packet)
+            packet.log(self, f"Packet added to {self}")
             msg = f"Packet sent."
         elif packet.status == ACK and (packet in self.__ackAwaitBuffer):
             self.__completed.add(packet)
@@ -220,7 +222,7 @@ class Router:
 
 # Link object
 class Link:
-    def __init__(self, u: Router, v: Router, weight: float = 1, network: Network = None):
+    def __init__(self, u: int, v: int, weight: float = 1, network: Network = None):
         self.weight = weight
         self.u = u
         self.v = v
@@ -235,6 +237,10 @@ class Link:
             raise CustomError("Packet already on Link!")
         packet.incrTimeStamp()
         self.__packets.add(packet)
+    
+    def getEndpoints(self) -> tuple[Router, Router]:
+        return (self.__network.getNodeIP(self.u), self.__network.getNodeIP(self.v))
+
 
     def deliverPackets(self):
         discarded = set()
@@ -244,18 +250,20 @@ class Link:
                 discarded.add(p)
                 continue
             p.log(self, f"At link {self}")
+            u, v = self.getEndpoints()
             if self.__network.getTime() - p.getTimeStamp() > self.weight:
                 # print("PACKET", self.__network.getTime(), p.getTimeStamp(), self.weight)
                 discarded.add(p)
-                if p.intermed == self.u:
-                    self.v.addPacket(p)
+                if p.intermedIP == self.u:
+                    v.addPacket(p)
                 else:
-                    self.u.addPacket(p)
+                    u.addPacket(p)
         self.__packets -= discarded
 
 
     def __repr__(self):
-        return f"Link({self.u.getName()} <-> {self.v.getName()})"
+        u, v = self.getEndpoints()
+        return f"Link({u.getName()} <-> {v.getName()})"
 
 # Network topology
 class Network:
@@ -295,7 +303,7 @@ class Network:
             print(l)
         
 
-    def changeTopology_l(self, links: list[Link]):
+    def changeTopology_l(self, links: list[Link], routers: list[Router]):
         """Update all links and invalidate inactive nodes"""
         
         old_nodes = set()
@@ -309,8 +317,9 @@ class Network:
 
         obsolete_nodes = old_nodes - new_nodes
         for n in obsolete_nodes:
-            n.destroy()
-        self.__setNodeMap(list(new_nodes))
+            node = self.getNodeIP(n)
+            node.destroy()
+        self.__setNodeMap(routers)
         self.__setLinkMap(links)
         self.refreshDns()
         self.__nodesExplore()
@@ -319,10 +328,13 @@ class Network:
         if len(edges) != len(weights):
             raise CustomError("Number of edges != Number of weights")
         links = []
+        routers = set()
         for i in range(len(edges)):
             u, v, w  = edges[i][0], edges[i][1], weights[i]
             links.append(Link(u, v, w, self))
-        self.changeTopology_l(links)
+            routers.add(u)
+            routers.add(v)
+        self.changeTopology_l(links, list(routers))
 
     def changeTopology_nnal(self, node_names, adjacency_list):
         ###     0 3 1      a
@@ -330,6 +342,7 @@ class Network:
         ###     1 0 0      c
         adjacency_list = defaultdict(list, adjacency_list)
         links = []
+        routers = set()
         namesUsed = {}
         for n in node_names:
             if n in namesUsed:
@@ -343,14 +356,17 @@ class Network:
                 else:
                     r2 = Router(v)
                     namesUsed[v] = r2
-                links.append(Link(r1, r2, w, self))
-        self.changeTopology_l(links)
+                links.append(Link(r1.getIP(), r2.getIP(), w, self))
+                routers.add(r1)
+                routers.add(r2)
+        self.changeTopology_l(links, routers)
 
 
     def refreshDns(self):
         for e in self.__links.values():
-            self.__dns[e.u.getName()] = e.u.getIP()
-            self.__dns[e.v.getName()] = e.v.getIP()
+            u, v = e.getEndpoints()
+            self.__dns[u.getName()] = u.getIP()
+            self.__dns[v.getName()] = v.getIP()
     
     def __nodesExplore(self):
         nodes = set(self.__nodes.values())
@@ -368,12 +384,13 @@ class Network:
         for n in nodes:
             self.addNode(n)
 
-    def addNode(self, router: Router):
-        if router.getIP() in self.__nodes:
-            raise CustomError("Router with given IP or Name already exists!")
-        if router.getName() in self.__dns:
-            print("WARNING: name already exists!")
-            return
+    def addNode(self, router: Router, skipChecks: Bool = False):
+        if not skipChecks:
+            if router.getIP() in self.__nodes:
+                raise CustomError("Router with given IP or Name already exists!")
+            if router.getName() in self.__dns:
+                print("WARNING: name already exists!")
+                return
         router.setNetwork(self)
         router.setRoutingAlgorithm(DijkstraNextHop)
         self.__nodes[router.getIP()] = router
@@ -382,9 +399,8 @@ class Network:
     def addLink(self, link: Link):
         if link.id in self.__links:
             raise CustomError("Link already exists")
-        u = link.u
-        v = link.v
-        ip1, ip2 = u.getIP(), v.getIP()
+        u, v = link.getEndpoints()
+        ip1, ip2 = link.u, link.v
         if (ip1, ip2) in self.__links:
             return
         if ip1 not in self.__nodes:
@@ -406,6 +422,11 @@ class Network:
         self.__dns[newname] = n
         del self.__dns[oldname]
         return True
+    
+    def getDNSIP(self, name):
+        if name not in self.__dns:
+            raise CustomError("Couldn't find DNS entry - name doesn't exist")
+        return self.__dns[name]
 
     def incrementTime(self):
         self.__time += 1
@@ -434,6 +455,23 @@ class Network:
             return None
         return self.__nodes[ip]
     
+    def getNodeIP(self, ip) -> Router:
+        return self.__nodes[ip]
+        
+    
+    def setNode(self, node: Router):
+        """
+        Use if you want to replace a node.
+        """
+        name = node.getName()
+        prevNode = self.getNode(name)
+        if prevNode != None:
+            node.setIP(prevNode.getIP())
+        self.addNode(node, True)
+        node.updateRoutingTable()
+        
+
+    
     def getLink(self, id_or_ipTuple) -> Link:
         return self.__links[id_or_ipTuple]
     
@@ -453,7 +491,7 @@ class Packet:
     def __init__(self, src: str, dst: str, logBit: bool = False, status: Status = None, network: Network = None):
         self.src = src
         self.dst = dst
-        self.intermed = src
+        self.intermedIP = -1
         self.__logBit = logBit
         self.__log = []
         self.retransmitNext = None
@@ -535,5 +573,8 @@ class Attacker(Router):
         super().__init__(name)
 
     def updateRoutingTable(self):
-        return defaultdict(lambda _: None)
+        self.__nextHopVector = defaultdict(lambda: None)
+    
+    def setRoutingAlgorithm(self, algorihtm):
+        return
 

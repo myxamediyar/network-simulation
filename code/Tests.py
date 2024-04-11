@@ -12,19 +12,18 @@ def test1():
     d[nodes[2]] = [(nodes[3], 1)]
     d[nodes[3]] = [(nodes[4], 1)]
 
-    net = Network(10)
+    net = Network(40)
     net.changeTopology_nnal(nodes, d)
     ip1 = net.getIP('d')
     ip2 = net.getIP('e')
-    net.setLinkWeight((ip1, ip2), np.inf)
+    # net.setLinkWeight((ip1, ip2), np.inf)
+    maliciousNode = Attacker('d')
+    net.setNode(maliciousNode)
     testPacket = Packet("a", "e", True)
     net.send(testPacket)
     net.updateTickN(100)
-    # testPacket.printLogRec()
-
-
-#TODO: malciiosu
-#TODO: fix drop - not dropping
+    testPacket.printLog()
 
 test1()
 
+#TODO : packet not nodes but IPs
