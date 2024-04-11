@@ -71,7 +71,6 @@ class Router:
             if p.getStatus() == RECV: #round trip complete
                 continue
             # print(src, dst, self.__nextHopVector[p.dst])
-            print(self.__nextHopVector)
             nextHopName = self.__nextHopVector[p.dst]
             if nextHopName == None:
                 self.drop(p)
@@ -86,13 +85,13 @@ class Router:
         msg = f"At {self}."
         packet.incrTimeStamp()
         packet.intermedIP = self.getIP()
-        if packet.status == FRESH:
-            packet.setStatus(SENT)
+        if packet.getStatus() == FRESH:
             packet.incrTimeSent()
             self.__ackAwaitBuffer.add(packet)
             packet.log(self, f"Packet added to {self}")
+            packet.setStatus(SENT)
             msg = f"Packet sent."
-        elif packet.status == ACK and (packet in self.__ackAwaitBuffer):
+        elif packet.getStatus() == ACK and (packet in self.__ackAwaitBuffer):
             self.__completed.add(packet)
             self.__ackAwaitBuffer.remove(packet)
             packet.setStatus(RECV)
@@ -246,7 +245,7 @@ class Link:
         discarded = set()
         for p in self.__packets:
             if p.getStatus() == DROP:
-                p.log(self, f"Packet dropped by source, stopped logging.")
+                p.log(self, f"Packet dropped by source, stopped logging at {self}")
                 discarded.add(p)
                 continue
             p.log(self, f"At link {self}")
@@ -494,6 +493,7 @@ class Packet:
         self.intermedIP = -1
         self.__logBit = logBit
         self.__log = []
+        self.__summary = [None, [], None]
         self.retransmitNext = None
         self.__timeSent = -1000000
         self.__timeStamp = -1000000
@@ -551,9 +551,15 @@ class Packet:
     
     ###ADD LOGS METHODS
     def log(self, who, msg):
+        if type(who) == Router and self.getStatus() not in [DROP, FRESH]:
+            self.__summary[1].append(who.getName())
         logInfo = f"TIMESTAMP {self.__network.getTime()}: {self} is at {who}.\n{' ' * (len(' TIMESTAMP ') + len(str(self.__network.getTime())))}Message: {msg}"
         if self.__logBit:
             self.__log.append(logInfo)
+        if self.getStatus() == FRESH:
+            self.__summary[0] = msg
+        if self.getStatus() == DROP or self.getStatus() == RECV:
+            self.__summary[2] = msg
             
     def printLog(self):
         for m in self.__log:
@@ -566,6 +572,14 @@ class Packet:
             n.printLog()
             n = n.retransmitNext
             i += 1
+
+    def printSummary(self):
+        print(f"{self} summary:")
+        print(self.__summary[0])
+        travelPath = ','.join(self.__summary[1])
+        print("Visisted nodes: " + travelPath)
+        print(self.__summary[2])
+
 
 
 class Attacker(Router): 
