@@ -1,3 +1,4 @@
+from collections import defaultdict
 import heapq
 
 def Dijkstra(network, startRouter):
@@ -23,16 +24,18 @@ def Dijkstra(network, startRouter):
 
 def DijkstraNextHop(network, startRouter):
     _, prevNodes = Dijkstra(network, startRouter)
-    nextHopVector = {}
+    nextHopVector = defaultdict(lambda _: None)
     for dst in prevNodes:
         curNode = dst
         prev = dst
         while curNode != startRouter: 
             prev = curNode
+            if prev == None:
+                break
             curNode = prevNodes[curNode]
         nextHopVector[dst] = prev
     d = {}
     for to, hop in nextHopVector.items():
-        d[to.getName()] = hop.getName()
+        d[to.getName()] = None if hop == None else hop.getName()
     return d
 

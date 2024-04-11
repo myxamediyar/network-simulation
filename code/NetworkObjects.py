@@ -62,6 +62,7 @@ class Router:
         self.__packets = packets
     
     def forwardAll(self):
+        retransmitPackets = set()
         for p in self.__packets:
             self.__process(p)
             if p.getStatus() == DROP: #discard if dropped
@@ -70,18 +71,23 @@ class Router:
                 continue
             # print(src, dst, self.__nextHopVector[p.dst])
             nextHopName = self.__nextHopVector[p.dst]
+            if nextHopName == None:
+                retransmitPackets.add(self.drop(p))
+                continue
             nextHopIP = self.__network.getIP(nextHopName)
             nextLink = self.__network.getLink((self.getIP(), nextHopIP))
             nextLink.addPacket(p)
-        self.__packets = set()
+        self.__packets = retransmitPackets
 
     def __process_basic(self, packet):
         ## mark and log
         msg = f"At {self}."
+        packet.log(self, msg)
         packet.incrTimeStamp()
         packet.intermed = self
         if packet.status == FRESH:
             packet.setStatus(SENT)
+            packet.incrTimeSent()
             self.__ackAwaitBuffer.add(packet)
             msg = f"Packet sent."
         elif packet.status == ACK and (packet in self.__ackAwaitBuffer):
@@ -96,16 +102,22 @@ class Router:
         packet.log(self, msg)
 
     def checkAck(self):
+        droppedPackets = set()
         t = self.__network.getTime()
         rto = self.__network.RTO
         for p in self.__ackAwaitBuffer:
             if t - p.getTimeSent() > rto:
-                p.setStatus(DROP)
-                p.log(self, f"Packet dropped at {self}.")
-                p = deepcopy(p)
-                p.incrRTcount()
-                p.refresh(self)
-                self.addPacket(p)
+                droppedPackets.add(p)
+                self.addPacket(self.drop(p))
+        self.__ackAwaitBuffer -= droppedPackets
+
+    def drop(self, p: Packet):
+        p.setStatus(DROP)
+        p.log(self, f"Packet dropped by {self}.")
+        p1 = deepcopy(p)
+        p.retransmitNext = p1
+        p1.refresh(self)
+        return p1
 
     def __process(self, packet: Packet):
         ##malicious will be able to modify this
@@ -206,7 +218,6 @@ class Router:
             return NotImplemented
         return self.getName() >= other.getName()
 
-
 # Link object
 class Link:
     def __init__(self, u: Router, v: Router, weight: float = 1, network: Network = None):
@@ -228,6 +239,10 @@ class Link:
     def deliverPackets(self):
         discarded = set()
         for p in self.__packets:
+            if p.getStatus() == DROP:
+                p.log(self, f"Packet dropped by source, stopped logging.")
+                discarded.add(p)
+                continue
             p.log(self, f"At link {self}")
             if self.__network.getTime() - p.getTimeStamp() > self.weight:
                 # print("PACKET", self.__network.getTime(), p.getTimeStamp(), self.weight)
@@ -404,7 +419,6 @@ class Network:
             raise CustomError("Src for packet wasn't found!")
         packet.setNetwork(self)
         packet.setStatus(FRESH)
-        packet.incrTimeSent()
         srcNode.addPacket(packet)
         
     
@@ -423,13 +437,15 @@ class Network:
     def getLink(self, id_or_ipTuple) -> Link:
         return self.__links[id_or_ipTuple]
     
+    def setLinkWeight(self, id_or_ipTuple, w):
+        self.__links[id_or_ipTuple].weight = w
+
+    
     def getIP(self, name: str) -> int:
         node = self.getNode(name)
         if node == None:
             raise CustomError("Name to IP mapping doesn't exit")
         return node.getIP()
-
-        
 
 # Packet object
 class Packet:
@@ -440,6 +456,7 @@ class Packet:
         self.intermed = src
         self.__logBit = logBit
         self.__log = []
+        self.retransmitNext = None
         self.__timeSent = -1000000
         self.__timeStamp = -1000000
         self.rtCount = 0
@@ -503,3 +520,20 @@ class Packet:
     def printLog(self):
         for m in self.__log:
             print(m)
+    
+    def printLogRec(self):
+        n = self
+        i = 0
+        while (n != None) and (i < 10):
+            n.printLog()
+            n = n.retransmitNext
+            i += 1
+
+
+class Attacker(Router): 
+    def __init__(self, name: str):
+        super().__init__(name)
+
+    def updateRoutingTable(self):
+        return defaultdict(lambda _: None)
+
