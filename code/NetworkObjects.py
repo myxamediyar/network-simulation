@@ -70,8 +70,12 @@ class Router:
                 continue
             nextHopName = self.__nextHopVector[p.dst]
             if nextHopName == None:
-                self.drop(p)
-                continue
+                if self.getNetwork().tryDNS(nextHopName):
+                    self.updateRoutingTable()
+                nextHopName = self.__nextHopVector[p.dst]
+                if nextHopName == None:
+                    self.drop(p)
+                    continue
             nextHopIP = self.__network.getIP(nextHopName)
             nextLink = self.__network.getLink((self.getIP(), nextHopIP))
             nextLink.addPacket(p)
@@ -481,6 +485,9 @@ class Network:
         if name not in self.__dns:
             raise CustomError("Couldn't find DNS entry - name doesn't exist")
         return self.__dns[name]
+    
+    def tryDNS(self, name):
+        return name in self.__dns
 
     def incrementTime(self):
         self.__time += 1
