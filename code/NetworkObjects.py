@@ -358,7 +358,7 @@ class Network:
         self.__setNodeMap(routers)
         self.__setLinkMap(links)
         self.refreshDns()
-        self.__nodesExplore()
+        self.triggerNodesExplore()
 
     def changeTopology_rw(self, edges: list[(Router, Router)], weights: list[int]):
         if len(edges) != len(weights):
@@ -403,8 +403,8 @@ class Network:
             u, v = e.getEndpoints()
             self.__dns[u.getName()] = u.getIP()
             self.__dns[v.getName()] = v.getIP()
-    
-    def __nodesExplore(self):
+
+    def triggerNodesExplore(self):
         nodes = set(self.__nodes.values())
         for n in nodes:
             r: Router = n
@@ -458,8 +458,8 @@ class Network:
             print("WARNING: Router name not found in DNS.")
 
     
-    def addLink(self, link: Link):
-        if link.id in self.__links:
+    def addLink(self, link: Link, ignoreId: bool = False):
+        if not ignoreId and link.id in self.__links:
             raise CustomError("Link already exists")
         link.setNetwork(self)
         u, v = link.getEndpoints()
@@ -471,6 +471,10 @@ class Network:
         self.__links[link.id] = link
         u.addLink(link.id)
         v.addLink(link.id)
+
+    def setLink(self, link: Link):
+        self.addLink(link)
+        self.triggerNodesExplore()
         
         
     def changeDNSEntry(self, oldname: str, newname: str) -> bool:
