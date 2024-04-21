@@ -15,7 +15,7 @@ def startEndTestMsg(testName):
     s2 = (TEST_MSG_LEN - len(testName) - len(endMsg)) // 2
     buf1 = '-' * s1
     buf2 = '-' * s2
-    return buf1 + startMsg + testName + ' ' + buf1 + '\n', '\n' + buf2 + endMsg + testName + ' ' + buf2 + '\n\n', 
+    return buf1 + startMsg + testName + ' ' + buf1, buf2 + endMsg + testName + ' ' + buf2 + '\n\n', 
 
 def setupBasic():
     nodes = ['a', 'b', 'c', 'd', 'e']
@@ -86,28 +86,32 @@ def sendTestPacket(net: Network, srcNode: Router = None, dstNode: Router = None,
     keepSrcNode = srcNode != None
     keepDstNode = dstNode != None
     res = None
+    testPacket = None
     while (res == None):
         srcNode = srcNode if keepSrcNode else net.getRandomNode(False)
         dstNode = dstNode if keepDstNode else net.getRandomNode(False, invalid=set([srcNode]))
         testPacket = Packet(srcNode.getName(), dstNode.getName(), logBit=False, retransmit=False)
         net.send(testPacket)
         net.updateTickN(tickCount)
-        testPacket.printSummary()
+        # testPacket.printSummary()
         if (testPacket.getStatus() == DROP):
             res = identifyDropperBasic(net, testPacket, waitDropperTick)
+    if testPacket != None: testPacket.printSummary()
     return res
 
 def sendTestPacketSupervised(gene, net: Network, srcNode: Router, dstNode: Router):
     ok = True
     res = None
+    testPacket = None
     while ok:
         res = next(gene, None)
         if res == None: break     
         testPacket = Packet(srcNode.getName(), dstNode.getName(), logBit=True, retransmit=False)
         net.send(testPacket)
         net.updateTickN(15)
-        testPacket.printSummary()
+        # testPacket.printSummary()
         ok = testPacket.getStatus() == RECV
+    if testPacket != None: testPacket.printSummary()
     return res
 
 
@@ -132,7 +136,10 @@ def makeSupervisionGene(net: Network, srcNode: Router, dstNode: Router):
         # net.setLinkWeight((dstNode.getIP(), node.getIP()), np.inf)
         node.updateRoutingTable()
 
-def test1(): #basic: should complete round trip
+def basic_test1(): #basic: should complete round trip
+    startMsg, endMsg = startEndTestMsg("Basic Test 1: Simple Network")
+    print(startMsg)
+
     nodes, d = setupBasic()
     net = Network(40)
     net.changeTopology_nnal(nodes, d)
@@ -140,8 +147,12 @@ def test1(): #basic: should complete round trip
     net.send(testPacket)
     net.updateTickN(100)
     testPacket.printSummary()
+    print(endMsg)
 
-def test2(): #basic: should drop
+def basic_test2(): #basic: should drop
+    startMsg, endMsg = startEndTestMsg("Basic Test 2: Simple Network with Bad Link")
+    print(startMsg)
+
     nodes, d = setupBasic()
     net = Network(40)
     net.changeTopology_nnal(nodes, d)
@@ -153,7 +164,12 @@ def test2(): #basic: should drop
     net.updateTickN(100)
     testPacket.printSummary()
 
-def test3(): #should report drop (unknown reasons)
+    print(endMsg)
+
+def basic_test3(): #should report drop (unknown reasons)
+    startMsg, endMsg = startEndTestMsg("Basic Test 3: Attacker Present - Drop")
+    print(startMsg)
+
     nodes, d = setupBasic()
     net = Network(40)
     net.changeTopology_nnal(nodes, d)
@@ -163,6 +179,8 @@ def test3(): #should report drop (unknown reasons)
     net.send(testPacket)
     net.updateTickN(100)
     testPacket.printSummary()
+
+    print(endMsg)
 
 def probe_test1(): #proof of concept probing
     startMsg, endMsg = startEndTestMsg("Probing Test 1: Proof of Concept")
@@ -177,7 +195,7 @@ def probe_test1(): #proof of concept probing
     net.updateTickN(100)
     testPacket.printSummary()
     res = identifyDropperBasic(net, testPacket)
-    print("\nDropper identified to be:", str(res) + '\n')
+    print("\nDropper identified to be:", res)
     print(endMsg)
 
 def probe_test2(): #randomized probing in desne networks
@@ -210,6 +228,10 @@ def probe_test3(): #supervisory node
     geneRun = makeSupervisionGene(net, supervisor1, supervisor2)
     print("\nDropper identified to be:", sendTestPacketSupervised(geneRun, net, supervisor1, supervisor2))
     print(endMsg)
+
+basic_test1()
+basic_test2()
+basic_test3()
 
 probe_test1()
 probe_test2()

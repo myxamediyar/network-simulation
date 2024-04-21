@@ -96,7 +96,7 @@ class Router:
             msg = f"Packet sent."
         elif packet.getStatus() == ACK:
             if packet not in self.__ackAwaitBuffer:
-                print("WARNING: A non waited upon ACK'd packet received and discarded!")
+                # print("WARNING: A non waited upon ACK'd packet received and discarded!")
                 msg = f"Dropped random ACK'd packet."
                 packet.setStatus(DROP)
             else:
@@ -619,7 +619,7 @@ class Packet:
         self.__timeSent = -1000000
         self.__timeStamp = -1000000
 
-        self.configure(FRESH, router)
+        self.configure(FRESH, router.getNetwork())
 
     def setStatus(self, status: Status):
         self.configure(status, self.__network)
