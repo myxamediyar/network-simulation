@@ -12,7 +12,6 @@ def setupBasic():
     d[nodes[3]] = [(nodes[4], 1)]
     return nodes, d
 
-
 def generateConnectedRandomGraph(n, maxW=10, connectivity=0.3):
     nodes = ["node" + str(i) for i in range(n)]
     d = defaultdict(list)
@@ -43,35 +42,81 @@ def generateTrustedNode(net: Network, to: str, name: str):
     l = Link(v.getIP(), u.getIP(), 0)
     net.addNode(v)
     net.addLink(l)
-    u.updateRoutingTable()
-    v.updateRoutingTable()
     return v
 
-def testRouter(net: Network, nodeName: str) -> bool:
+def testRouter(net: Network, nodeName: str, stopTime: int = 10) -> bool:
     prober1 = "prober-" + str(generateRandomID())
     prober2 = "prober-" + str(generateRandomID())
     p1 = generateTrustedNode(net, nodeName, prober1)
     p2 = generateTrustedNode(net, nodeName, prober2)
-    p1.updateRoutingTable()
-    p2.updateRoutingTable()
     testPacket = Packet(prober1, prober2, retransmit=False)
     net.send(testPacket)
-    net.updateTickTill(testPacket, DROP)
+    net.updateTickTill(testPacket, DROP, stopTime)
     dropper = net.getNode(nodeName).reportDropHop(testPacket)
     net.removeNode(p1)
     net.removeNode(p2)
     return dropper == None
 
-
-def identifyDropperBasic(net: Network, packet: Packet) -> str:
+def identifyDropperBasic(net: Network, packet: Packet, stopTime: int = 100) -> str:
     cur = packet.src
     while cur != None:
-        ok = testRouter(net, cur)
+        ok = testRouter(net, cur, stopTime)
         cur = net.getNode(cur)
         if not ok: return cur
         cur = cur.reportDropHop(packet)
     # print("This statement should not have been reached!")
     return None
+
+def sendTestPacket(net: Network, srcNode: Router = None, dstNode: Router = None, 
+                   tickCount: int = 200, waitDropperTick: int = 100):
+    keepSrcNode = srcNode != None
+    keepDstNode = dstNode != None
+    res = None
+    while (res == None):
+        srcNode = net.getRandomNode(False) if not keepSrcNode else srcNode
+        dstNode = net.getRandomNode(False, invalid=set([srcNode])) if not keepDstNode else dstNode
+        testPacket = Packet(srcNode.getName(), dstNode.getName(), logBit=False, retransmit=False)
+        net.send(testPacket)
+        net.updateTickN(tickCount)
+        testPacket.printSummary()
+        if (testPacket.getStatus() == DROP):
+            res = identifyDropperBasic(net, testPacket, waitDropperTick)
+    return res
+
+def sendTestPacketSupervised(gene, net: Network, srcNode: Router, dstNode: Router):
+    ok = True
+    res = None
+    while ok:
+        res = next(gene, None)
+        if res == None: break     
+        testPacket = Packet(srcNode.getName(), dstNode.getName(), logBit=True, retransmit=False)
+        net.send(testPacket)
+        net.updateTickN(15)
+        testPacket.printSummary()
+        ok = testPacket.getStatus() == RECV
+    return res
+
+
+def makeSupervisionGene(net: Network, srcNode: Router, dstNode: Router):
+    for node in set(net.getNodes()) - set([srcNode, dstNode]):
+        l1 = Link(srcNode.getIP(), node.getIP(), 0)
+        l2 = Link(dstNode.getIP(), node.getIP(), 0)
+        net.setLink(l1)
+        net.setLink(l2)
+        # net.setLinkWeight((srcNode.getIP(), node.getIP()), 0)
+        # net.setLinkWeight((dstNode.getIP(), node.getIP()), 0)
+        srcNode.updateRoutingTable()
+        node.updateRoutingTable()
+        dstNode.updateRoutingTable()
+        # srcNode.printNextHop(dstNode.getName())
+        yield node
+        l1 = Link(srcNode.getIP(), node.getIP(), np.inf)
+        l2 = Link(dstNode.getIP(), node.getIP(), np.inf)
+        net.setLink(l1)
+        net.setLink(l2)
+        # net.setLinkWeight((srcNode.getIP(), node.getIP()), np.inf)
+        # net.setLinkWeight((dstNode.getIP(), node.getIP()), np.inf)
+        node.updateRoutingTable()
 
 def test1(): #basic: should complete round trip
     nodes, d = setupBasic()
@@ -106,6 +151,7 @@ def test3(): #should report drop (unknown reasons)
     testPacket.printSummary()
 
 def probe_test1(): #proof of concept probing
+    print("--------- STARTING PROBE TEST 1: proof of concept ---------")
     nodes, d = setupBasic()
     net = Network(40)
     net.changeTopology_nnal(nodes, d)
@@ -117,53 +163,34 @@ def probe_test1(): #proof of concept probing
     testPacket.printSummary()
     res = identifyDropperBasic(net, testPacket)
     print("\nDropper identified to be:", res)
+    print("--------- ENDING PROBE TEST 1: -------------------------")
 
 def probe_test2(): #randomized probing in desne networks
     nodes, d = generateConnectedRandomGraph(101, 10, 0.8)
     net = Network(50)
     net.changeTopology_nnal(nodes, d)
-    maliciousNode = Attacker('node-mal', 5)
+    maliciousNode = Attacker('node-mal', 40)
     net.addNode(maliciousNode)
     net.triggerNodesExplore()
-    res = None
-    while (res == None):
-        srcNode = random.randint(0, 100)
-        destNode = srcNode
-        while destNode == srcNode:
-            destNode = random.randint(0, 100)
-        testPacket = Packet("node" + str(srcNode), "node" + str(destNode), logBit=False, retransmit=False)
-        net.send(testPacket)
-        net.updateTickN(200)
-        testPacket.printSummary()
-        if (testPacket.getStatus() == DROP):
-            res = identifyDropperBasic(net, testPacket)
-    print("\nDropper identified to be:", res)
+    print("\nDropper identified to be:", sendTestPacket(net))
 
 def probe_test3(): #supervisory node
-    nodes, d = generateConnectedRandomGraph(101, 10, 0.8)
-    net = Network(50)
+    nodes, d = generateConnectedRandomGraph(20, 10, 0.5)
+    net = Network(10)
     net.changeTopology_nnal(nodes, d)
     #malicious node installed
     maliciousNode = Attacker('node-mal')
     net.addNode(maliciousNode)
     #superviory node installed 
-    supervisor = Router("supervisor")
-    net.addNode(supervisor)
+    supervisor1 = Defender("supervisor1", np.inf)
+    net.addNode(supervisor1)
+    supervisor2 = Defender("supervisor2", np.inf)
+    net.addNode(supervisor2)
     net.triggerNodesExplore()
-    res = None
-    while (res == None):
-        srcNode = random.randint(0, 100)
-        destNode = srcNode
-        while destNode == srcNode:
-            destNode = random.randint(0, 100)
-        testPacket = Packet("node" + str(srcNode), "node" + str(destNode), logBit=False, retransmit=False)
-        net.send(testPacket)
-        net.updateTickN(200)
-        testPacket.printSummary()
-        if (testPacket.getStatus() == DROP):
-            res = identifyDropperBasic(net, testPacket)
-    print("\nDropper identified to be:", res)
+    geneRun = makeSupervisionGene(net, supervisor1, supervisor2)
+    print("\nDropper identified to be:", sendTestPacketSupervised(geneRun, net, supervisor1, supervisor2))
 
-# probe_test1()
+probe_test1()
 probe_test2()
+probe_test3()
 

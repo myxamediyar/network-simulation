@@ -3,6 +3,7 @@
 #region imports
 from collections import defaultdict
 from enum import Enum
+from os import link
 import random
 from copy import deepcopy
 from RoutingAlgos import *
@@ -81,6 +82,7 @@ class Router:
             nextLink.addPacket(p)
         self.__packets = set()
 
+
     def __process_basic(self, packet):
         ## mark and log
         msg = f"At {self}."
@@ -100,8 +102,9 @@ class Router:
             else:
                 self.__completed.add(packet)
                 self.__ackAwaitBuffer.remove(packet)
-                packet.setStatus(RECV)
-                msg = f"Round trip completed."
+                if packet.dst == self.getName():
+                    packet.setStatus(RECV)
+                    msg = f"Round trip completed."         
         elif packet.dst == self.getName():
             packet.setStatus(ACK)
             msg = "Packet received."
@@ -185,9 +188,15 @@ class Router:
     #region router Links
     def getLinks(self):
         return [self.getNetwork().getLink(id) for id in self.__links]
+    
+    def getLinksRaw(self):
+        return self.__links
 
     def addLink(self, linkID: int):
         self.__links.add(linkID)
+
+    def setLinks(self, links: set):
+        self.__links = links
 
     def removeLink(self, linkID: int):
         self.__links.remove(linkID)
@@ -208,6 +217,9 @@ class Router:
     def printNextHops(self):
         for k, v in self.__nextHopVector.items():
             print("To", k, "through", v)
+    
+    def printNextHop(self, name: str):
+        return print("To", name, "through", self.__nextHopVector[name])
 
     #endregion
     
@@ -466,19 +478,24 @@ class Network:
             print("WARNING: Router name not found in DNS.")
 
     
-    def addLink(self, link: Link, ignoreId: bool = False):
-        if not ignoreId and link.id in self.__links:
+    def addLink(self, link: Link, ignoreExisting: bool = False):
+        if not ignoreExisting and link.id in self.__links:
             raise CustomError("Link already exists")
         link.setNetwork(self)
         u, v = link.getEndpoints()
         ip1, ip2 = link.u, link.v
+        prevID = -1
         if (ip1, ip2) in self.__links:
-            return
+            prevID = self.__links[(ip1, ip2)].id
         self.__links[(ip1, ip2)] = link
         self.__links[(ip2, ip1)] = link
         self.__links[link.id] = link
         u.addLink(link.id)
         v.addLink(link.id)
+        if not ignoreExisting and prevID != -1:
+            u.removeLink(prevID)
+            v.removeLink(prevID)
+            del self.__links[prevID]
 
     def setLink(self, link: Link):
         self.addLink(link)
@@ -528,14 +545,15 @@ class Network:
             return None
         return self.__nodes[ip]
 
-    def getRandomNode(self, targetAll: bool = True, failureCond: int = 100):
-        failureCond = 1 if targetAll else failureCond
+    def getRandomNode(self, targetAll: bool = True, failureCond: int = 100, invalid: set = None):
+        invalid = set() if invalid == None else invalid
         keys = list(self.__nodes.keys())
         while (failureCond):
             randInd = random.randint(0, len(keys) - 1)
             res = self.__nodes[keys[randInd]]
-            typeCheck = type(res) == Attacker or type(res) == Defender
-            if targetAll or typeCheck: return res
+            isInvalid = res in invalid
+            isBadType = type(res) == Attacker or type(res) == Defender
+            if not isInvalid and (targetAll or not isBadType): return res
             failureCond -= 1
         raise CustomError("No valid node found!")
     
@@ -552,12 +570,11 @@ class Network:
         name = node.getName()
         prevNode = self.getNode(name)
         if prevNode != None:
+            node.setLinks(prevNode.getLinksRaw())
             node.setIP(prevNode.getIP())
         self.addNode(node, True)
         node.updateRoutingTable()
         
-
-    
     def getLink(self, id_or_ipTuple) -> Link:
         return self.__links[id_or_ipTuple]
     
@@ -598,11 +615,11 @@ class Packet:
         if self.__network == None:
             raise CustomError("Packet is not on a network!")
 
-    def refresh(self, router):
+    def refresh(self, router: Router):
         self.__timeSent = -1000000
         self.__timeStamp = -1000000
 
-        self.configure(FRESH, router.getNetwork())
+        self.configure(FRESH, router)
 
     def setStatus(self, status: Status):
         self.configure(status, self.__network)
@@ -638,11 +655,11 @@ class Packet:
 
 
     def __repr__(self):
-        return f"Packet(SRC: {self.src}; DST: {self.dst}; STATUS: {self.getStatusStr()})"
+        return f"Packet(SRC: {self.src}; DST: {self.dst}; STATUS: {self.getStatusStr()}; ID: {self.packetID})"
     
     ###ADD LOGS METHODS
     def log(self, who, msg):
-        if type(who) == Router and self.getStatus() not in [DROP, FRESH]:
+        if type(who) != Link and self.getStatus() not in [DROP, FRESH]:
             self.__summary[1].append(who.getName())
         logInfo = f"TIMESTAMP {self.__network.getTime()}: {self} is at {who}.\n{' ' * (len(' TIMESTAMP ') + len(str(self.__network.getTime())))}Message: {msg}"
         if self.__logBit:
@@ -655,7 +672,10 @@ class Packet:
     def printLog(self):
         for m in self.__log:
             print(m)
-    
+
+    def printLogLast(self):
+        if not self.__log: print("No log yet.")
+        else: print(self.__log[-1])    
     def printLogRec(self):
         n = self
         i = 0
@@ -675,7 +695,7 @@ class Packet:
 
 
 class Attacker(Router): 
-    def __init__(self, name: str, attackNum: int, targetAll: bool = True, failureCond: int = 100):
+    def __init__(self, name: str, attackNum: int = 5, targetAll: bool = True, failureCond: int = 100):
         super().__init__(name)
         self.attackNum = attackNum
         self.targetAll = targetAll
@@ -690,11 +710,10 @@ class Attacker(Router):
     def preprocess(self):
         net: Network = self.getNetwork()
         for _ in range(self.attackNum):
-            victim = net.getRandomNode(self.targetAll, self.failureCond)
+            victim = net.getRandomNode(self.targetAll, self.failureCond, set([self]))
             net.addLink(
                 Link(self.getIP(), victim.getIP(), 0)
             )
-            
 
     def reportDropHop(self, _):
         links = self.getLinks()
@@ -705,12 +724,13 @@ class Attacker(Router):
 
                 
 class Defender(Router):
-    def __init__(self, name: str):
+    def __init__(self, name: str, linkWdef: int = 0):
         super().__init__(name)
+        self.linkWdef = linkWdef
 
     def preprocess(self):
         net: Network = self.getNetwork()
         for n in net.getNodes():
-            net.addLink(Link(self.getIP(), n.getIP(), 0))
+            net.addLink(Link(self.getIP(), n.getIP(), self.linkWdef))
     
 
