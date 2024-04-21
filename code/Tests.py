@@ -122,10 +122,8 @@ def probe_test2(): #randomized probing in desne networks
     nodes, d = generateConnectedRandomGraph(101, 10, 0.8)
     net = Network(50)
     net.changeTopology_nnal(nodes, d)
-    maliciousNode = Attacker('node-mal')
+    maliciousNode = Attacker('node-mal', 5)
     net.addNode(maliciousNode)
-    for _ in range(5):
-        net.addLink(Link(maliciousNode.getIP(), net.getIP("node" + str(random.randint(0, 100))), 0))
     net.triggerNodesExplore()
     res = None
     while (res == None):
@@ -148,13 +146,9 @@ def probe_test3(): #supervisory node
     #malicious node installed
     maliciousNode = Attacker('node-mal')
     net.addNode(maliciousNode)
-    for _ in range(5):
-        net.addLink(Link(maliciousNode.getIP(), net.getIP("node" + str(random.randint(0, 100))), 0))
     #superviory node installed 
     supervisor = Router("supervisor")
-    net.addLink(Link(supervisor.getIP(), net.getIP("node-mal"), 0))
-    for i in range(101):
-        net.addLink(Link(supervisor.getIP(), net.getIP("node" + str(i)), 0))
+    net.addNode(supervisor)
     net.triggerNodesExplore()
     res = None
     while (res == None):
@@ -171,5 +165,5 @@ def probe_test3(): #supervisory node
     print("\nDropper identified to be:", res)
 
 # probe_test1()
-# probe_test2()
+probe_test2()
 

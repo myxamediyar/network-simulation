@@ -52,7 +52,7 @@ class Router:
         self.__completed = set()
         self.__links = set()
         self.configure(name, ip = generateRandomID())
-        self.setRoutingAlgorithm(lambda x: x)
+        self.setRoutingAlgorithm(lambda x: None)
 
     def configure(self, name: str = None, ip: int = -1, network: Network = None, packets: list[Packet] = set()):
         """Sets or updates the configuration for the router."""
@@ -210,7 +210,12 @@ class Router:
             print("To", k, "through", v)
 
     #endregion
-     
+    
+
+    def preprocess(self):
+        pass
+
+
     # Additional method to check if the router is destroyed
     def isDestroyed(self):
         return self.__destroyed
@@ -304,6 +309,7 @@ class Network:
         self.__links = {}
         self.__nodes = {}
         self.RTO = RTO
+        self.numNodes = 0
     
     def updateTick(self):
         ###increment time
@@ -427,15 +433,17 @@ class Network:
             if router.getName() in self.__dns:
                 print("WARNING: name already exists!")
                 return
+        self.numNodes += 1
         router.setNetwork(self)
         router.setRoutingAlgorithm(DijkstraNextHop)
         self.__nodes[router.getIP()] = router
         self.__dns[router.getName()] = router.getIP()
+        router.preprocess()
 
     def removeNode(self, router: Router):
         ip = router.getIP()
         name = router.getName()
-
+        self.numNodes -= 1
         linksRemove = []
         for link in router.getLinks():
             u, v = link.getEndpoints()
@@ -519,6 +527,19 @@ class Network:
         if ip == None:
             return None
         return self.__nodes[ip]
+
+    def getRandomNode(self, targetAll: bool = True, failureCond: int = 100):
+        failureCond = 1 if targetAll else failureCond
+        keys = list(self.__nodes.keys())
+        while (failureCond):
+            randInd = random.randint(0, len(keys) - 1)
+            res = self.__nodes[keys[randInd]]
+            typeCheck = type(res) == Attacker or type(res) == Defender
+            if targetAll or typeCheck: return res
+            failureCond -= 1
+        raise CustomError("No valid node found!")
+    
+
     
     def getNodeIP(self, ip) -> Router:
         return self.__nodes[ip]
@@ -654,14 +675,26 @@ class Packet:
 
 
 class Attacker(Router): 
-    def __init__(self, name: str):
+    def __init__(self, name: str, attackNum: int, targetAll: bool = True, failureCond: int = 100):
         super().__init__(name)
+        self.attackNum = attackNum
+        self.targetAll = targetAll
+        self.failureCond = failureCond
 
     def updateRoutingTable(self):
         self.__nextHopVector = defaultdict(lambda: None)
     
     def setRoutingAlgorithm(self, algorihtm):
         return
+
+    def preprocess(self):
+        net: Network = self.getNetwork()
+        for _ in range(self.attackNum):
+            victim = net.getRandomNode(self.targetAll, self.failureCond)
+            net.addLink(
+                Link(self.getIP(), victim.getIP(), 0)
+            )
+            
 
     def reportDropHop(self, _):
         links = self.getLinks()
@@ -671,4 +704,13 @@ class Attacker(Router):
         return links[0]
 
                 
+class Defender(Router):
+    def __init__(self, name: str):
+        super().__init__(name)
+
+    def preprocess(self):
+        net: Network = self.getNetwork()
+        for n in net.getNodes():
+            net.addLink(Link(self.getIP(), n.getIP(), 0))
+    
 
