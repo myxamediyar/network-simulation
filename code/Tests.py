@@ -3,6 +3,20 @@ from RoutingAlgos import *
 import numpy as np
 import random
 
+TEST_MSG_LEN = 70
+TEST_MSG_BUFFER = 14
+
+def startEndTestMsg(testName):
+    if len(testName) > TEST_MSG_LEN - TEST_MSG_BUFFER:
+        raise CustomError("Test name too long.")
+    startMsg = ' STARTING '
+    endMsg = ' ENDING '
+    s1 = (TEST_MSG_LEN - len(testName) - len(startMsg)) // 2
+    s2 = (TEST_MSG_LEN - len(testName) - len(endMsg)) // 2
+    buf1 = '-' * s1
+    buf2 = '-' * s2
+    return buf1 + startMsg + testName + ' ' + buf1 + '\n', '\n' + buf2 + endMsg + testName + ' ' + buf2 + '\n\n', 
+
 def setupBasic():
     nodes = ['a', 'b', 'c', 'd', 'e']
     d = {}
@@ -73,8 +87,8 @@ def sendTestPacket(net: Network, srcNode: Router = None, dstNode: Router = None,
     keepDstNode = dstNode != None
     res = None
     while (res == None):
-        srcNode = net.getRandomNode(False) if not keepSrcNode else srcNode
-        dstNode = net.getRandomNode(False, invalid=set([srcNode])) if not keepDstNode else dstNode
+        srcNode = srcNode if keepSrcNode else net.getRandomNode(False)
+        dstNode = dstNode if keepDstNode else net.getRandomNode(False, invalid=set([srcNode]))
         testPacket = Packet(srcNode.getName(), dstNode.getName(), logBit=False, retransmit=False)
         net.send(testPacket)
         net.updateTickN(tickCount)
@@ -151,7 +165,8 @@ def test3(): #should report drop (unknown reasons)
     testPacket.printSummary()
 
 def probe_test1(): #proof of concept probing
-    print("--------- STARTING PROBE TEST 1: proof of concept ---------")
+    startMsg, endMsg = startEndTestMsg("Probing Test 1: Proof of Concept")
+    print(startMsg)
     nodes, d = setupBasic()
     net = Network(40)
     net.changeTopology_nnal(nodes, d)
@@ -162,19 +177,24 @@ def probe_test1(): #proof of concept probing
     net.updateTickN(100)
     testPacket.printSummary()
     res = identifyDropperBasic(net, testPacket)
-    print("\nDropper identified to be:", res)
-    print("--------- ENDING PROBE TEST 1: -------------------------")
+    print("\nDropper identified to be:", str(res) + '\n')
+    print(endMsg)
 
 def probe_test2(): #randomized probing in desne networks
+    startMsg, endMsg = startEndTestMsg("Probing Test 2: Randomized Probing in Desne Networks")
+    print(startMsg)
     nodes, d = generateConnectedRandomGraph(101, 10, 0.8)
     net = Network(50)
     net.changeTopology_nnal(nodes, d)
-    maliciousNode = Attacker('node-mal', 40)
+    maliciousNode = Attacker('node-mal', 5)
     net.addNode(maliciousNode)
     net.triggerNodesExplore()
     print("\nDropper identified to be:", sendTestPacket(net))
+    print(endMsg)
 
 def probe_test3(): #supervisory node
+    startMsg, endMsg = startEndTestMsg("Probing Test 3: Probing With a Supervisory Node")
+    print(startMsg)
     nodes, d = generateConnectedRandomGraph(20, 10, 0.5)
     net = Network(10)
     net.changeTopology_nnal(nodes, d)
@@ -189,6 +209,7 @@ def probe_test3(): #supervisory node
     net.triggerNodesExplore()
     geneRun = makeSupervisionGene(net, supervisor1, supervisor2)
     print("\nDropper identified to be:", sendTestPacketSupervised(geneRun, net, supervisor1, supervisor2))
+    print(endMsg)
 
 probe_test1()
 probe_test2()
