@@ -198,8 +198,8 @@ def probe_test1(): #proof of concept probing
     print("\nDropper identified to be:", res)
     print(endMsg)
 
-def probe_test2(): #randomized probing in desne networks
-    startMsg, endMsg = startEndTestMsg("Probing Test 2: Randomized Probing in Desne Networks")
+def probe_test2(): #randomized probing in dense networks
+    startMsg, endMsg = startEndTestMsg("Probing Test 2: Randomized Probing in Dense Networks")
     print(startMsg)
     nodes, d = generateConnectedRandomGraph(101, 10, 0.8)
     net = Network(50)

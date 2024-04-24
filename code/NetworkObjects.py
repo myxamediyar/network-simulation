@@ -14,8 +14,7 @@ class Status(Enum):
     SENT = 1
     RECV = 2
     ACK = 3
-    INVALID_MAPPING = 4
-    DROP = 5
+    DROP = 4
 
 LARGE_PRIME = 112272535095293
 def generateRandomID():
@@ -25,7 +24,6 @@ FRESH = Status.FRESH
 SENT = Status.SENT
 ACK = Status.ACK
 RECV = Status.RECV
-INVALID_MAPPING = Status.INVALID_MAPPING
 DROP = Status.DROP
 
 #Custom error
