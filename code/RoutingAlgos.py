@@ -1,7 +1,7 @@
 from collections import defaultdict
 import heapq
 import random
-from tracemalloc import start
+import numpy as np
 
 def Dijkstra(network, startRouter):
     dist = {router: float('infinity') for router in network.getNodes()}
@@ -25,8 +25,8 @@ def Dijkstra(network, startRouter):
     return dist, prevNodes
 
 
-def DijkstraNextHop(network, startRouter):
-    _, prevNodes = Dijkstra(network, startRouter)
+def DijkstraNextHopDist(network, startRouter):
+    dist, prevNodes = Dijkstra(network, startRouter)
     nextHopVector = defaultdict(lambda _: None)
     for dst in prevNodes:
         curNode = dst
@@ -40,11 +40,21 @@ def DijkstraNextHop(network, startRouter):
     d = {}
     for to, hop in nextHopVector.items():
         d[to.getName()] = None if hop == None else hop.getName()
-    return d
+    return d, dist
+
+def DijkstraNextHop(network, startRouter):
+    return DijkstraNextHopDist(network, startRouter)[0]
 
 def ProbabilisticDijkstra(network, startRouter):
     # startRouter.setAuxiliary(DijkstraNextHop, network, startRouter)
-    startRouter.setHopWrapper(lambda vec, name: vec[random.choice(list(vec.keys()))])
-    res = DijkstraNextHop(network, startRouter)
-    print(res)
+    res, dist = DijkstraNextHopDist(network, startRouter)
+    def select_random_node(vec):
+        nodes = list(vec.values())
+        weights = np.array([1 / dist[network.getNode(node)] if node != startRouter.getName() else 0 for node in nodes])
+        weights /= np.sum(weights)
+        if not nodes: return None
+        chosenNode = random.choices(nodes, weights=weights, k=1)[0]
+        return chosenNode
+
+    startRouter.setHopWrapper(lambda vec, _: select_random_node(vec))
     return res

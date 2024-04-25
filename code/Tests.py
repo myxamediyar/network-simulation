@@ -51,7 +51,7 @@ def generateConnectedRandomGraph(n, maxW=10, connectivity=0.3, seed=None):
 def generateTrustedNode(net: Network, to: str, name: str):
     v = Router(name)
     u = net.getNode(to)
-    l = Link(v.getNodeIP(), u.getNodeIP(), 0)
+    l = Link(v.getIP(), u.getIP(), 0)
     net.addNode(v)
     net.addLink(l)
     return v
@@ -115,23 +115,23 @@ def sendTestPacketSupervised(gene, net: Network, srcNode: Router, dstNode: Route
 
 def makeSupervisionGene(net: Network, srcNode: Router, dstNode: Router):
     for node in set(net.getNodes()) - set([srcNode, dstNode]):
-        l1 = Link(srcNode.getNodeIP(), node.getNodeIP(), 0)
-        l2 = Link(dstNode.getNodeIP(), node.getNodeIP(), 0)
+        l1 = Link(srcNode.getIP(), node.getIP(), 0)
+        l2 = Link(dstNode.getIP(), node.getIP(), 0)
         net.setLink(l1)
         net.setLink(l2)
-        # net.setLinkWeight((srcNode.getNodeIP(), node.getNodeIP()), 0)
-        # net.setLinkWeight((dstNode.getNodeIP(), node.getNodeIP()), 0)
+        # net.setLinkWeight((srcNode.getIP(), node.getIP()), 0)
+        # net.setLinkWeight((dstNode.getIP(), node.getIP()), 0)
         srcNode.updateRoutingTable()
         node.updateRoutingTable()
         dstNode.updateRoutingTable()
         # srcNode.printNextHop(dstNode.getName())
         yield node
-        l1 = Link(srcNode.getNodeIP(), node.getNodeIP(), np.inf)
-        l2 = Link(dstNode.getNodeIP(), node.getNodeIP(), np.inf)
+        l1 = Link(srcNode.getIP(), node.getIP(), np.inf)
+        l2 = Link(dstNode.getIP(), node.getIP(), np.inf)
         net.setLink(l1)
         net.setLink(l2)
-        # net.setLinkWeight((srcNode.getNodeIP(), node.getNodeIP()), np.inf)
-        # net.setLinkWeight((dstNode.getNodeIP(), node.getNodeIP()), np.inf)
+        # net.setLinkWeight((srcNode.getIP(), node.getIP()), np.inf)
+        # net.setLinkWeight((dstNode.getIP(), node.getIP()), np.inf)
         node.updateRoutingTable()
 
 def basic_test1(): #basic: should complete round trip
@@ -230,35 +230,30 @@ def probe_test3(): #supervisory node
 def random_path_test1():
     startMsg, endMsg = startEndTestMsg("Random Path Test 1: Proof of Concept")
     print(startMsg)
-    nodes, d = generateConnectedRandomGraph(60, 10, 0.5, 69)
-    net = Network(100)
+    nodes, d = generateConnectedRandomGraph(10, 2, 0.1, 69)
+    net = Network(200)
     net.routingDefault = ProbabilisticDijkstra
-    print(net.routingDefault)
+    net.dropRandoms = False
     net.changeTopology_nnal(nodes, d)
-    #malicious node installed
-    maliciousNode = Attacker('node-mal', 10)
-    net.addNode(maliciousNode)
-    #superviory node installed 
-    supervisor1 = Defender("supervisor1", np.inf)
-    net.addNode(supervisor1)
-    supervisor2 = Defender("supervisor2", np.inf)
-    net.addNode(supervisor2)
+    r1 = Router("r1")
+    net.addNode(r1)
+    net.addLink(Link(r1.getIP(), net.getRandomNode().getIP(), 5))
+    net.addLink(Link(r1.getIP(), net.getRandomNode().getIP(), 5))
+    net.addLink(Link(r1.getIP(), net.getRandomNode().getIP(), 5))
     net.triggerNodesExplore()
-    pack = Packet(supervisor1.getName(), net.getRandomNode().getName(), True)
+    pack = Packet(r1.getName(), net.getRandomNode().getName(), True)
     net.send(pack)
-    net.updateTickTill(pack, RECV, 100)
-    pack.printLog()
-    # geneRun = makeSupervisionGene(net, supervisor1, supervisor2)
-    # print("\nDropper identified to be:", sendTestPacketSupervised(geneRun, net, supervisor1, supervisor2))
+    net.updateTickTill(pack, RECV, 300)
+    pack.printLogRec()
     print(endMsg)
 
-# basic_test1()
-# basic_test2()
-# basic_test3()
+basic_test1()
+basic_test2()
+basic_test3()
 
-# probe_test1()
-# probe_test2()
-# probe_test3()
+probe_test1()
+probe_test2()
+probe_test3()
 
-random_path_test1()
+# random_path_test1()
 
