@@ -95,7 +95,6 @@ class Router:
     def setHopWrapper(self, func):
         self.__hopWrapper = func
 
-
     def __process_basic(self, packet):
         ## mark and log
         msg = f"At {self}."
@@ -728,7 +727,6 @@ class Packet:
         print("-", "Time sent:", self.getTimeSent(), "\n- Last logged time:", self.getTimeStamp())
 
 
-
 class Attacker(Router): 
     def __init__(self, name: str, attackNum: int = 5, targetAll: bool = True, failureCond: int = 100):
         super().__init__(name)
@@ -756,8 +754,7 @@ class Attacker(Router):
             raise CustomError("Isolated node detected!")
         random.shuffle(links)
         return links[0]
-
-                
+             
 class Defender(Router):
     def __init__(self, name: str, linkWdef: int = 0):
         super().__init__(name)

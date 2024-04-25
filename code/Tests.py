@@ -1,3 +1,4 @@
+from debugpy import connect
 from NetworkObjects import *
 from RoutingAlgos import *
 import numpy as np
@@ -230,30 +231,32 @@ def probe_test3(): #supervisory node
 def random_path_test1():
     startMsg, endMsg = startEndTestMsg("Random Path Test 1: Proof of Concept")
     print(startMsg)
-    nodes, d = generateConnectedRandomGraph(10, 2, 0.1, 69)
-    net = Network(200)
+    nodes, d = generateConnectedRandomGraph(n=10, maxW=2, 
+                                            connectivity=0.1, 
+                                            seed = 69)
+    net = Network(RTO = 200)
     net.routingDefault = ProbabilisticDijkstra
     net.dropRandoms = False
     net.changeTopology_nnal(nodes, d)
     r1 = Router("r1")
     net.addNode(r1)
-    net.addLink(Link(r1.getIP(), net.getRandomNode().getIP(), 5))
-    net.addLink(Link(r1.getIP(), net.getRandomNode().getIP(), 5))
-    net.addLink(Link(r1.getIP(), net.getRandomNode().getIP(), 5))
+    net.addLink(Link(r1.getIP(), net.getRandomNode().getIP(), weight = 5))
+    net.addLink(Link(r1.getIP(), net.getRandomNode().getIP(), weight = 5))
+    net.addLink(Link(r1.getIP(), net.getRandomNode().getIP(), weight = 5))
     net.triggerNodesExplore()
-    pack = Packet(r1.getName(), net.getRandomNode().getName(), True)
+    pack = Packet(r1.getName(), net.getRandomNode().getName(), logBit=True)
     net.send(pack)
-    net.updateTickTill(pack, RECV, 300)
+    net.updateTickTill(pack, RECV, stopTime=300)
     pack.printLogRec()
     print(endMsg)
 
-basic_test1()
-basic_test2()
-basic_test3()
+# basic_test1()
+# basic_test2()
+# basic_test3()
 
-probe_test1()
-probe_test2()
-probe_test3()
+# probe_test1()
+# probe_test2()
+# probe_test3()
 
-# random_path_test1()
+random_path_test1()
 
