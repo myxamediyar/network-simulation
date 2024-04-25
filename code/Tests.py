@@ -26,14 +26,11 @@ def setupBasic():
     d[nodes[3]] = [(nodes[4], 1)]
     return nodes, d
 
-def generateConnectedRandomGraph(n, maxW=10, connectivity=0.3):
+def generateConnectedRandomGraph(n, maxW=10, connectivity=0.3, seed=None):
     nodes = ["node" + str(i) for i in range(n)]
     d = defaultdict(list)
 
-    # d = {}
-
-    # for v in nodes:
-    #     d[v] = []
+    if seed != None: random.seed(seed)
 
     connected = [nodes[0]]
     for v in nodes[1:]:
@@ -48,12 +45,13 @@ def generateConnectedRandomGraph(n, maxW=10, connectivity=0.3):
                 w = random.randint(1, maxW)
                 d[nodes[i]].append((nodes[j], w))
 
+    if seed != None: random.seed()
     return nodes, d
 
 def generateTrustedNode(net: Network, to: str, name: str):
     v = Router(name)
     u = net.getNode(to)
-    l = Link(v.getIP(), u.getIP(), 0)
+    l = Link(v.getNodeIP(), u.getNodeIP(), 0)
     net.addNode(v)
     net.addLink(l)
     return v
@@ -66,7 +64,7 @@ def testRouter(net: Network, nodeName: str, stopTime: int = 10) -> bool:
     testPacket = Packet(prober1, prober2, retransmit=False)
     net.send(testPacket)
     net.updateTickTill(testPacket, DROP, stopTime)
-    dropper = net.getNode(nodeName).reportDropHop(testPacket)
+    dropper = net.getNode(nodeName).reportHop(testPacket)
     net.removeNode(p1)
     net.removeNode(p2)
     return dropper == None
@@ -77,7 +75,7 @@ def identifyDropperBasic(net: Network, packet: Packet, stopTime: int = 100) -> s
         ok = testRouter(net, cur, stopTime)
         cur = net.getNode(cur)
         if not ok: return cur
-        cur = cur.reportDropHop(packet)
+        cur = cur.reportHop(packet)
     # print("This statement should not have been reached!")
     return None
 
@@ -117,23 +115,23 @@ def sendTestPacketSupervised(gene, net: Network, srcNode: Router, dstNode: Route
 
 def makeSupervisionGene(net: Network, srcNode: Router, dstNode: Router):
     for node in set(net.getNodes()) - set([srcNode, dstNode]):
-        l1 = Link(srcNode.getIP(), node.getIP(), 0)
-        l2 = Link(dstNode.getIP(), node.getIP(), 0)
+        l1 = Link(srcNode.getNodeIP(), node.getNodeIP(), 0)
+        l2 = Link(dstNode.getNodeIP(), node.getNodeIP(), 0)
         net.setLink(l1)
         net.setLink(l2)
-        # net.setLinkWeight((srcNode.getIP(), node.getIP()), 0)
-        # net.setLinkWeight((dstNode.getIP(), node.getIP()), 0)
+        # net.setLinkWeight((srcNode.getNodeIP(), node.getNodeIP()), 0)
+        # net.setLinkWeight((dstNode.getNodeIP(), node.getNodeIP()), 0)
         srcNode.updateRoutingTable()
         node.updateRoutingTable()
         dstNode.updateRoutingTable()
         # srcNode.printNextHop(dstNode.getName())
         yield node
-        l1 = Link(srcNode.getIP(), node.getIP(), np.inf)
-        l2 = Link(dstNode.getIP(), node.getIP(), np.inf)
+        l1 = Link(srcNode.getNodeIP(), node.getNodeIP(), np.inf)
+        l2 = Link(dstNode.getNodeIP(), node.getNodeIP(), np.inf)
         net.setLink(l1)
         net.setLink(l2)
-        # net.setLinkWeight((srcNode.getIP(), node.getIP()), np.inf)
-        # net.setLinkWeight((dstNode.getIP(), node.getIP()), np.inf)
+        # net.setLinkWeight((srcNode.getNodeIP(), node.getNodeIP()), np.inf)
+        # net.setLinkWeight((dstNode.getNodeIP(), node.getNodeIP()), np.inf)
         node.updateRoutingTable()
 
 def basic_test1(): #basic: should complete round trip
@@ -156,8 +154,8 @@ def basic_test2(): #basic: should drop
     nodes, d = setupBasic()
     net = Network(40)
     net.changeTopology_nnal(nodes, d)
-    ip1 = net.getIP('d')
-    ip2 = net.getIP('e')
+    ip1 = net.getNodeIP('d')
+    ip2 = net.getNodeIP('e')
     net.setLinkWeight((ip1, ip2), np.inf)
     testPacket = Packet("a", "e", True)
     net.send(testPacket)
@@ -229,11 +227,38 @@ def probe_test3(): #supervisory node
     print("\nDropper identified to be:", sendTestPacketSupervised(geneRun, net, supervisor1, supervisor2))
     print(endMsg)
 
-basic_test1()
-basic_test2()
-basic_test3()
+def random_path_test1():
+    startMsg, endMsg = startEndTestMsg("Random Path Test 1: Proof of Concept")
+    print(startMsg)
+    nodes, d = generateConnectedRandomGraph(60, 10, 0.5, 69)
+    net = Network(100)
+    net.routingDefault = ProbabilisticDijkstra
+    print(net.routingDefault)
+    net.changeTopology_nnal(nodes, d)
+    #malicious node installed
+    maliciousNode = Attacker('node-mal', 10)
+    net.addNode(maliciousNode)
+    #superviory node installed 
+    supervisor1 = Defender("supervisor1", np.inf)
+    net.addNode(supervisor1)
+    supervisor2 = Defender("supervisor2", np.inf)
+    net.addNode(supervisor2)
+    net.triggerNodesExplore()
+    pack = Packet(supervisor1.getName(), net.getRandomNode().getName(), True)
+    net.send(pack)
+    net.updateTickTill(pack, RECV, 100)
+    pack.printLog()
+    # geneRun = makeSupervisionGene(net, supervisor1, supervisor2)
+    # print("\nDropper identified to be:", sendTestPacketSupervised(geneRun, net, supervisor1, supervisor2))
+    print(endMsg)
 
-probe_test1()
-probe_test2()
-probe_test3()
+# basic_test1()
+# basic_test2()
+# basic_test3()
+
+# probe_test1()
+# probe_test2()
+# probe_test3()
+
+random_path_test1()
 

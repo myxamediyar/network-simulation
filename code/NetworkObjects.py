@@ -3,7 +3,6 @@
 #region imports
 from collections import defaultdict
 from enum import Enum
-from os import link
 import random
 from copy import deepcopy
 from RoutingAlgos import *
@@ -15,6 +14,7 @@ class Status(Enum):
     RECV = 2
     ACK = 3
     DROP = 4
+    PROCESSED = 5
 
 LARGE_PRIME = 112272535095293
 def generateRandomID():
@@ -25,6 +25,7 @@ SENT = Status.SENT
 ACK = Status.ACK
 RECV = Status.RECV
 DROP = Status.DROP
+PROCESSED = Status.PROCESSED
 
 #Custom error
 class CustomError(Exception):
@@ -47,9 +48,11 @@ class Router:
         self.__destroyed = False
         self.__nextHopVector = defaultdict(lambda: None)
         self.__ackAwaitBuffer = set()
-        self.__dropHop = defaultdict(lambda: None)
+        self.__recordedHop = defaultdict(lambda: None)
         self.__completed = set()
         self.__links = set()
+        self.__auxiliary = None
+        self.__hopWrapper = lambda vector, name: vector[name]
         self.configure(name, ip = generateRandomID())
         self.setRoutingAlgorithm(lambda x: None)
 
@@ -67,7 +70,12 @@ class Router:
                 continue
             if p.getStatus() == RECV: #round trip complete
                 continue
-            nextHopName = self.__nextHopVector[p.dst]
+            nextHopName = self.getNextHopFor(p.dst)
+            self.recordHop(p, nextHopName)
+            if p.getStatus() == PROCESSED:
+                p.setStatus(SENT)
+                self.__ackAwaitBuffer.add(p)
+                p.log(self, "Packet sent.")
             if nextHopName == None:
                 if self.getNetwork().tryDNS(nextHopName):
                     self.updateRoutingTable()
@@ -75,23 +83,27 @@ class Router:
                 if nextHopName == None:
                     self.drop(p)
                     continue
-            nextHopIP = self.__network.getIP(nextHopName)
-            nextLink = self.__network.getLink((self.getIP(), nextHopIP))
+            nextHopIP = self.__network.getNodeIP(nextHopName)
+            nextLink = self.__network.getLink((self.getNodeIP(), nextHopIP))
             nextLink.addPacket(p)
         self.__packets = set()
 
+    def getNextHopFor(self, name: str):
+        return self.__hopWrapper(self.__nextHopVector, name)
+    
+    def setHopWrapper(self, func):
+        self.__hopWrapper = func
 
     def __process_basic(self, packet):
         ## mark and log
         msg = f"At {self}."
         packet.incrTimeStamp()
-        packet.intermedIP = self.getIP()
+        packet.intermedIP = self.getNodeIP()
         if packet.getStatus() == FRESH:
             packet.incrTimeSent()
-            self.__ackAwaitBuffer.add(packet)
-            packet.log(self, f"Packet added to {self}")
-            packet.setStatus(SENT)
-            msg = f"Packet sent."
+            # self.__ackAwaitBuffer.add(packet)
+            msg = f"Packet added to {self}"
+            packet.setStatus(PROCESSED)
         elif packet.getStatus() == ACK:
             if packet not in self.__ackAwaitBuffer:
                 # print("WARNING: A non waited upon ACK'd packet received and discarded!")
@@ -121,7 +133,6 @@ class Router:
                 _, v = p.src, p.dst
                 if p.getStatus() == ACK:
                     _, v = v, _
-                self.recordDropHop(p, self.__nextHopVector[v])
                 self.drop(p)
                 self.retransmit(p, p.retransmit)
         self.__ackAwaitBuffer -= droppedPackets
@@ -139,11 +150,11 @@ class Router:
             self.addPacket(p1)
         return p1
     
-    def recordDropHop(self, packet: Packet, nextHop: str):
-        self.__dropHop[packet] = nextHop
+    def recordHop(self, packet: Packet, nextHop: str):
+        self.__recordedHop[packet] = nextHop
 
-    def reportDropHop(self, packet):
-        return self.__dropHop[packet]
+    def reportHop(self, packet):
+        return self.__recordedHop[packet]
 
     def __process(self, packet: Packet):
         ##malicious will be able to modify this
@@ -157,9 +168,17 @@ class Router:
         self.__nextHopVector = self.__routing(self.__network, self)
     
     def setRoutingAlgorithm(self, algorihtm):
+        self.__auxiliary = None
+        self.__hopWrapper = lambda vector, name: vector[name]
         self.__routing = algorihtm
+    
+    def setAuxiliary(self, func, *args):
+        if self.__auxiliary == None:
+            self.__auxiliary == func(*args)
 
-###---------FOR ALL GETTERs PERFORM DEEP COPY---------####
+    def getAuxiliary(self):
+        return self.__auxiliary
+
 
     #region router Name
     def getName(self):
@@ -170,7 +189,7 @@ class Router:
         self.configure(name=name, ip=self.__ip, network=self.__network, packets=self.__packets)
     #endregion
     #region router IP
-    def getIP(self):
+    def getNodeIP(self):
         return self.__ip
 
     def setIP(self, ip: int):
@@ -235,6 +254,7 @@ class Router:
         self.configure(name="Null", ip=-1, network=None, packets=[])
         self.__destroyed = True
 
+
     def __repr__(self):
         return f"Router({self.__name})"
     
@@ -277,7 +297,7 @@ class Link:
         self.__packets.add(packet)
     
     def getEndpoints(self) -> tuple[Router, Router]:
-        return (self.__network.getNodeIP(self.u), self.__network.getNodeIP(self.v))
+        return (self.__network.getNodeFromIP(self.u), self.__network.getNodeFromIP(self.v))
     
     def hasEndpoint(self, ip: int) -> bool:
         return ip == self.u or ip == self.v
@@ -320,6 +340,7 @@ class Network:
         self.__nodes = {}
         self.RTO = RTO
         self.numNodes = 0
+        self.routingDefault = DijkstraNextHop
     
     def updateTick(self):
         ###increment time
@@ -369,7 +390,7 @@ class Network:
 
         obsolete_nodes = old_nodes - new_nodes
         for n in obsolete_nodes:
-            node = self.getNodeIP(n)
+            node = self.getNodeFromIP(n)
             node.destroy()
         self.__setNodeMap(routers)
         self.__setLinkMap(links)
@@ -408,7 +429,7 @@ class Network:
                 else:
                     r2 = Router(v)
                     namesUsed[v] = r2
-                links.append(Link(r1.getIP(), r2.getIP(), w, self))
+                links.append(Link(r1.getNodeIP(), r2.getNodeIP(), w, self))
                 routers.add(r1)
                 routers.add(r2)
         self.changeTopology_l(links, routers)
@@ -417,8 +438,8 @@ class Network:
     def refreshDns(self):
         for e in self.__links.values():
             u, v = e.getEndpoints()
-            self.__dns[u.getName()] = u.getIP()
-            self.__dns[v.getName()] = v.getIP()
+            self.__dns[u.getName()] = u.getNodeIP()
+            self.__dns[v.getName()] = v.getNodeIP()
 
     def triggerNodesExplore(self):
         nodes = set(self.__nodes.values())
@@ -438,20 +459,20 @@ class Network:
 
     def addNode(self, router: Router, skipChecks: bool = False):
         if not skipChecks:
-            if router.getIP() in self.__nodes:
+            if router.getNodeIP() in self.__nodes:
                 raise CustomError("Router with given IP or Name already exists!")
             if router.getName() in self.__dns:
                 print("WARNING: name already exists!")
                 return
         self.numNodes += 1
         router.setNetwork(self)
-        router.setRoutingAlgorithm(DijkstraNextHop)
-        self.__nodes[router.getIP()] = router
-        self.__dns[router.getName()] = router.getIP()
+        router.setRoutingAlgorithm(self.routingDefault)
+        self.__nodes[router.getNodeIP()] = router
+        self.__dns[router.getName()] = router.getNodeIP()
         router.preprocess()
 
     def removeNode(self, router: Router):
-        ip = router.getIP()
+        ip = router.getNodeIP()
         name = router.getName()
         self.numNodes -= 1
         linksRemove = []
@@ -556,8 +577,7 @@ class Network:
         raise CustomError("No valid node found!")
     
 
-    
-    def getNodeIP(self, ip) -> Router:
+    def getNodeFromIP(self, ip) -> Router:
         return self.__nodes[ip]
         
     
@@ -569,7 +589,7 @@ class Network:
         prevNode = self.getNode(name)
         if prevNode != None:
             node.setLinks(prevNode.getLinksRaw())
-            node.setIP(prevNode.getIP())
+            node.setIP(prevNode.getNodeIP())
         self.addNode(node, True)
         node.updateRoutingTable()
         
@@ -579,12 +599,11 @@ class Network:
     def setLinkWeight(self, id_or_ipTuple, w):
         self.__links[id_or_ipTuple].weight = w
 
-    
-    def getIP(self, name: str) -> int:
+    def getNodeIP(self, name: str) -> int:
         node = self.getNode(name)
         if node == None:
             raise CustomError("Name to IP mapping doesn't exit")
-        return node.getIP()
+        return node.getNodeIP()
 
 # Packet object
 class Packet:
@@ -662,7 +681,7 @@ class Packet:
         logInfo = f"TIMESTAMP {self.__network.getTime()}: {self} is at {who}.\n{' ' * (len(' TIMESTAMP ') + len(str(self.__network.getTime())))}Message: {msg}"
         if self.__logBit:
             self.__log.append(logInfo)
-        if self.getStatus() == FRESH:
+        if self.getStatus() == PROCESSED:
             self.__summary[0] = msg
         if self.getStatus() == DROP or self.getStatus() == RECV:
             self.__summary[2] = msg
@@ -710,10 +729,10 @@ class Attacker(Router):
         for _ in range(self.attackNum):
             victim = net.getRandomNode(self.targetAll, self.failureCond, set([self]))
             net.addLink(
-                Link(self.getIP(), victim.getIP(), 0)
+                Link(self.getNodeIP(), victim.getNodeIP(), 0)
             )
 
-    def reportDropHop(self, _):
+    def reportHop(self, _):
         links = self.getLinks()
         if not len(links):
             raise CustomError("Isolated node detected!")
@@ -729,6 +748,6 @@ class Defender(Router):
     def preprocess(self):
         net: Network = self.getNetwork()
         for n in net.getNodes():
-            net.addLink(Link(self.getIP(), n.getIP(), self.linkWdef))
+            net.addLink(Link(self.getNodeIP(), n.getNodeIP(), self.linkWdef))
     
 

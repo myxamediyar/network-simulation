@@ -1,5 +1,7 @@
 from collections import defaultdict
 import heapq
+import random
+from tracemalloc import start
 
 def Dijkstra(network, startRouter):
     dist = {router: float('infinity') for router in network.getNodes()}
@@ -40,3 +42,9 @@ def DijkstraNextHop(network, startRouter):
         d[to.getName()] = None if hop == None else hop.getName()
     return d
 
+def ProbabilisticDijkstra(network, startRouter):
+    # startRouter.setAuxiliary(DijkstraNextHop, network, startRouter)
+    startRouter.setHopWrapper(lambda vec, name: vec[random.choice(list(vec.keys()))])
+    res = DijkstraNextHop(network, startRouter)
+    print(res)
+    return res
