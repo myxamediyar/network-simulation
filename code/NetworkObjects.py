@@ -57,7 +57,10 @@ class Router:
         self.configure(name, ip = generateRandomID())
         self.setRoutingAlgorithm(lambda x: None)
 
-    def configure(self, name: str = None, ip: int = -1, network: Network = None, packets: list[Packet] = set()):
+    def configure(self, name: str = None, 
+                  ip: int = -1, 
+                  network: Network = None, 
+                  packets: list[Packet] = set()):
         """Sets or updates the configuration for the router."""
         self.__name = name
         self.__ip = ip
@@ -246,11 +249,9 @@ class Router:
         return print("To", name, "through", self.__nextHopVector[name])
 
     #endregion
-    
 
     def preprocess(self):
         pass
-
 
     # Additional method to check if the router is destroyed
     def isDestroyed(self):
@@ -287,7 +288,9 @@ class Router:
 
 # Link object
 class Link:
-    def __init__(self, u: int, v: int, weight: float = 1, network: Network = None):
+    def __init__(self, u: int, v: int, 
+        weight: float = 1, 
+        network: Network = None):
         self.weight = weight
         self.u = u
         self.v = v
@@ -369,7 +372,9 @@ class Network:
         for _ in range(n):
             self.updateTick()
 
-    def updateTickTill(self, packet: Packet, status: Status, stopTime: int = 100):
+    def updateTickTill(self, packet: Packet, 
+                       status: Status, 
+                       stopTime: int = 100):
         while stopTime and packet.getStatus() != status:
             self.updateTick()
             stopTime -= 1
@@ -391,8 +396,8 @@ class Network:
         for l in links:
             print(l)
         
-
-    def changeTopology_l(self, links: list[Link], routers: list[Router]):
+    def changeTopology_l(self, links: list[Link], 
+                         routers: list[Router]):
         """Update all links and invalidate inactive nodes"""
         
         old_nodes = set()
@@ -413,7 +418,8 @@ class Network:
         self.refreshDns()
         self.triggerNodesExplore()
 
-    def changeTopology_rw(self, edges: list[(Router, Router)], weights: list[int]):
+    def changeTopology_rw(self, edges: list[(Router, Router)], 
+                          weights: list[int]):
         if len(edges) != len(weights):
             raise CustomError("Number of edges != Number of weights")
         links = []
@@ -425,7 +431,8 @@ class Network:
             routers.add(v)
         self.changeTopology_l(links, list(routers))
 
-    def changeTopology_nnal(self, node_names, adjacency_list):
+    def changeTopology_nnal(self, node_names, 
+                            adjacency_list):
         ###     0 3 1      a
         ###     3 0 2      b
         ###     1 0 0      c
@@ -449,7 +456,6 @@ class Network:
                 routers.add(r1)
                 routers.add(r2)
         self.changeTopology_l(links, routers)
-
 
     def refreshDns(self):
         for e in self.__links.values():
@@ -513,7 +519,6 @@ class Network:
         else:
             print("WARNING: Router name not found in DNS.")
 
-    
     def addLink(self, link: Link, ignoreExisting: bool = False):
         if not ignoreExisting and link.id in self.__links:
             raise CustomError("Link already exists")
@@ -536,7 +541,6 @@ class Network:
     def setLink(self, link: Link):
         self.addLink(link)
         self.triggerNodesExplore()
-        
         
     def changeDNSEntry(self, oldname: str, newname: str) -> bool:
         if newname in self.__dns:
@@ -581,7 +585,9 @@ class Network:
             return None
         return self.__nodes[ip]
 
-    def getRandomNode(self, targetAll: bool = True, failureCond: int = 100, invalid: set = None):
+    def getRandomNode(self, targetAll: bool = True, 
+                      failureCond: int = 100, 
+                      invalid: set = None):
         invalid = set() if invalid == None else invalid
         keys = list(self.__nodes.keys())
         while (failureCond):
@@ -624,8 +630,9 @@ class Network:
 
 # Packet object
 class Packet:
-
-    def __init__(self, src: str, dst: str, logBit: bool = False, status: Status = None, network: Network = None, retransmit = True):
+    def __init__(self, src: str, dst: str, logBit: bool = False, 
+                 status: Status = None, network: Network = None, 
+                 retransmit = True):
         self.src = src
         self.dst = dst
         self.intermedIP = -1
@@ -687,11 +694,7 @@ class Packet:
         # perform checks and call necessary method in network object (delete + append shit)
         self.configure(self.status, network)
 
-
-    def __repr__(self):
-        return f"Packet(SRC: {self.src}; DST: {self.dst}; STATUS: {self.getStatusStr()}; ID: {self.packetID})"
-    
-    ###ADD LOGS METHODS
+    ###LOGGING METHODS
     def log(self, who, msg):
         if type(who) != Link and self.getStatus() not in [DROP, FRESH, PROCESSED]:
             self.__summary[1].append(who.getName())
@@ -726,9 +729,13 @@ class Packet:
         print("-", self.__summary[2])
         print("-", "Time sent:", self.getTimeSent(), "\n- Last logged time:", self.getTimeStamp())
 
+    def __repr__(self):
+        return f"Packet(SRC: {self.src}; DST: {self.dst}; STATUS: {self.getStatusStr()}; ID: {self.packetID})"
+    
 
 class Attacker(Router): 
-    def __init__(self, name: str, attackNum: int = 5, targetAll: bool = True, failureCond: int = 100):
+    def __init__(self, name: str, attackNum: int = 5, 
+                 targetAll: bool = True, failureCond: int = 100):
         super().__init__(name)
         self.attackNum = attackNum
         self.targetAll = targetAll
